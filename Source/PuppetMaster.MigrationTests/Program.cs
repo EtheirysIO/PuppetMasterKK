@@ -318,19 +318,10 @@ static void RunPluginUiLogicTests()
         new() { Name = "Morning Wave", TriggerPhrase = "second" },
         new() { Name = "Individual", TriggerPhrase = "solo" },
     };
-    var groups = PluginUiLogic.GroupReactionIndexes(groupedReactions);
-    Assert(groups["Morning Wave"].SequenceEqual([0, 1]) && groups["Individual"].SequenceEqual([2]),
-        "reaction grouping should preserve indexes and exact-name groups");
     var cancelled = new List<Reaction>();
     PluginUiLogic.SetReactionEnabled(groupedReactions[0], false, cancelled.Add);
     Assert(!groupedReactions[0].Enabled && cancelled.SequenceEqual([groupedReactions[0]]),
         "disabling from the editor should cancel that reaction");
-    PluginUiLogic.SetReactionGroupEnabled(groupedReactions, [0, 1, -1, 99], true, cancelled.Add);
-    Assert(groupedReactions[0].Enabled && groupedReactions[1].Enabled,
-        "group enable should update every valid group member and ignore stale indexes");
-    PluginUiLogic.SetReactionGroupEnabled(groupedReactions, [0, 1], false, cancelled.Add);
-    Assert(!groupedReactions[0].Enabled && !groupedReactions[1].Enabled && cancelled.Count == 3,
-        "group disable should cancel every affected reaction");
     Assert(PluginUiLogic.TryDeleteReaction(groupedReactions, 1, out var nextIndex, cancelled.Add) && nextIndex == 1,
         "deleting a reaction should select the next valid index");
     Assert(groupedReactions.Count == 2 && groupedReactions[1].Name == "Individual",

@@ -15,11 +15,12 @@ Puppet Master lets trusted chat messages boss your character around. A matching 
 ### What it can do
 
 - React to simple phrases or messages with changing text.
-- Listen only to the chat channels you choose.
-- Allow safe commands and block commands you do not want.
+- Listen only to the chat channels you choose, and only to the people you choose: friends, your Free Company, your party, or named players.
+- Allow safe commands and block commands you do not want. Logging out, shutting down and reconfiguring plugins are never allowed.
 - Ignore repeated requests, save them for later, keep only the newest, or react again immediately.
 - Run several command lines with short waits between them.
-- Show incoming messages, waiting reactions, and recent activity inside the plugin.
+- Answer emotes aimed at you with the same emote (formerly the Right Back At You plugin).
+- Show incoming messages, what's running and waiting, and recent activity inside the plugin.
 
 ### Useful commands
 
@@ -33,7 +34,7 @@ Puppet Master lets trusted chat messages boss your character around. A matching 
 ```
 
 > [!CAUTION]
-> Puppet Master can run text commands on your character. Use specific phrases, trusted channels, and allow only the commands you need.
+> Puppet Master can run text commands on your character. Choose who can trigger each reaction, use specific phrases and trusted channels, and allow only the commands you need.
 
 ## A brief history
 
@@ -41,7 +42,7 @@ Puppet Master started as a simple way for friends to sync emotes through chat. O
 
 Over time, it grew beyond emotes. Reactions gained support for other text commands, several command lines, custom chat channels, and waits between steps.
 
-Today, each reaction can have its own trigger, allowed commands, channels, cooldown, and repeat behavior. Message logs, notifications, and the visualizer make it easier to set reactions up and see what they are doing.
+Today, each reaction can have its own trigger, senders, allowed commands, channels, cooldown, and repeat behavior. Right Back At You's emote replies now live inside Puppet Master too. The message log, notifications, and the Activity page make it easier to set reactions up and see what they are doing.
 
 ## What's next
 
@@ -51,5 +52,5 @@ These are ideas, not promises. Plans may change as they are tested.
 - Export a reaction as a share code that another user can review before enabling.
 - Preview matches and waiting activity without sending commands to the game.
 - Show clearer counts for ignored, replaced, or discarded requests.
-- Add optional limits and different behavior for each person sending requests.
+- Add different behavior for each person sending requests.
 - Let reactions choose from approved alternatives or run a final action when their work is done.

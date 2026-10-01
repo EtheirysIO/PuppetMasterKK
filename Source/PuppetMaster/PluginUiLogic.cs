@@ -92,21 +92,6 @@ internal static class PluginUiLogic
     public static readonly string[] ExecutionPolicyLabels =
         ExecutionPolicyOptions.Select(option => option.Label).ToArray();
 
-    public static Dictionary<string, List<int>> GroupReactionIndexes(IReadOnlyList<Reaction> reactions)
-    {
-        var groups = new Dictionary<string, List<int>>(StringComparer.Ordinal);
-        for (var index = 0; index < reactions.Count; index++)
-        {
-            if (!groups.TryGetValue(reactions[index].Name, out var indexes))
-            {
-                indexes = [];
-                groups.Add(reactions[index].Name, indexes);
-            }
-            indexes.Add(index);
-        }
-        return groups;
-    }
-
     public static int EnsureReactionSelection(Configuration configuration, int preferredIndex)
     {
         if (configuration.Reactions.Count == 0)
@@ -195,19 +180,6 @@ internal static class PluginUiLogic
         reaction.Enabled = enabled;
         if (!enabled)
             cancel?.Invoke(reaction);
-    }
-
-    public static void SetReactionGroupEnabled(
-        IReadOnlyList<Reaction> reactions,
-        IReadOnlyList<int> indexes,
-        bool enabled,
-        Action<Reaction>? cancel = null)
-    {
-        foreach (var index in indexes)
-        {
-            if (index >= 0 && index < reactions.Count)
-                SetReactionEnabled(reactions[index], enabled, cancel);
-        }
     }
 
     public static bool TryDeleteReaction(
