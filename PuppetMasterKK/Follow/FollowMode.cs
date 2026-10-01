@@ -1,3 +1,4 @@
+using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
@@ -87,6 +88,8 @@ internal static class FollowMode
 
         if (request.Kind == FollowRequestKind.Stop)
             Stop(configuration, settings);
+        else if (Service.Condition[ConditionFlag.InCombat])
+            Service.PluginLog.Information("Follow request from {Sender} ignored: in combat.", who.Name);
         else
             Follow(who, request.Target, settings);
         return true;

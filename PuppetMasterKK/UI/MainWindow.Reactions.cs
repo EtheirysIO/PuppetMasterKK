@@ -469,7 +469,8 @@ internal sealed partial class MainWindow
                 }
                 FlowSameLine(W.ToggleWidth("Party and alliance##party"));
                 var party = senders.Party;
-                if (W.Toggle("Party and alliance##party", ref party))
+                if (W.Toggle("Party and alliance##party", ref party,
+                             tooltip: "Anyone in your party or alliance, including people who joined from Party Finder"))
                 {
                     senders.Party = party;
                     changed();
@@ -480,7 +481,7 @@ internal sealed partial class MainWindow
                 var namedInput = namedInputs.GetValueOrDefault(id, string.Empty);
                 var named = senders.Named;
                 if (StringListEditor("named", named, ref namedInput, NameHint, "Nobody else.",
-                                     text => PluginUiLogic.AddPlayerName(named, text)))
+                                     text => PluginUiLogic.AddPlayerName(named, text), grantsTrust: true))
                     changed();
                 namedInputs[id] = namedInput;
             }
@@ -555,7 +556,7 @@ internal sealed partial class MainWindow
     private void DrawNoProtectionsSecondConfirm()
     {
         ImGui.PushTextWrapPos(ImGui.GetFontSize() * 26f);
-        ImGui.TextColored(Theme.Ink, $"Last check: \"{(noProtectionsTarget != null ? DisplayName(noProtectionsTarget) : "this trigger")}\" will run any command anyone sends it.");
+        ImGui.TextColored(Theme.Ink, $"Last check: \"{(noProtectionsTarget != null ? DisplayName(noProtectionsTarget) : "this trigger")}\" will run any command anyone sends it, including /logout, /shutdown and Dalamud's /xl commands.");
         ImGui.TextColored(Theme.Dim, "You can turn protections back on at any time. Duplicating this trigger turns them back on for the copy.");
         ImGui.PopTextWrapPos();
         Gap(6f);
@@ -790,8 +791,9 @@ internal sealed partial class MainWindow
     /// (Enter adds too). <paramref name="tryAdd"/> normalizes and adds, returning false for nothing to add. Returns
     /// true when the list changed.
     /// </summary>
+    // grantsTrust: a player list that lets people in; a name without @World there is tagged, since it matches any world.
     private static bool StringListEditor(string id, List<string> items, ref string input, string hint, string emptyText,
-        Func<string, bool> tryAdd)
+        Func<string, bool> tryAdd, bool grantsTrust = false)
     {
         var changed = false;
         ImGui.PushID(id);
@@ -804,6 +806,13 @@ internal sealed partial class MainWindow
                 ImGui.PushID(i);
                 ImGui.AlignTextToFramePadding();
                 ImGui.TextUnformatted(items[i]);
+                if (grantsTrust && !items[i].Contains('@'))
+                {
+                    ImGui.SameLine();
+                    W.Chip("any world", Theme.Warning);
+                    if (ImGui.IsItemHovered())
+                        W.Tooltip("No world given, so a player with this name on any world counts. Add @World to match only one.");
+                }
                 W.RightAlign(ImGui.GetFrameHeight());
                 if (W.IconButton(FontAwesomeIcon.Times, "##remove", "Remove", danger: true))
                     remove = i;

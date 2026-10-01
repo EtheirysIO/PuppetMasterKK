@@ -133,8 +133,8 @@ Each trigger chooses who can set it off:
 - **Anyone** — every player who can talk in the picked channels.
 - **Friends** — players on your friend list.
 - **Free Company** — your FC chat, and FC members the game has listed this session (open the FC member list once). An FC tag alone doesn't count: other FCs can use the same tag.
-- **Party and alliance** — your party and alliance, and their chat channels.
-- **Also these players** — named players, as `Name@World`, or just `Name` for any world.
+- **Party and alliance** — your party and alliance, and their chat channels. That includes people who joined from Party Finder.
+- **Also these players** — named players, as `Name@World`, or just `Name` for any world (tagged **any world**, since a same-named player on another world counts too).
 
 New triggers start with Friends, Free Company and Party. Triggers from before this option existed were set to **Anyone**, so they keep working as they did; review them. A trigger that **Anyone** can trigger in a public channel (Say, Yell, Shout, Tell, Party, Alliance or a cross-world linkshell) shows a warning, because strangers can trigger it.
 
@@ -273,7 +273,7 @@ This also clears waiting requests and stops any walk or mimic. **Cancel** in the
 
 - **Call name** is what people call you (`Ami`; several with `|`). **Follow word** (`follow`), **Come word** (`come`) and **Stop word** (`stop`) can be changed, and take several with `|` too, such as `follow|trail`.
 - `Ami come` comes to whoever said it and follows them; so does `Ami follow me`. `Ami follow Nova Ral'veth@Exodus` follows that player; `Ami follow Nova` works when only one Nova is nearby. `Ami follow` on its own names nobody, so it's ignored. PuppetMasterKK targets the player, then sends `/follow`.
-- **Walk to them with vnavmesh** (on, used when vnavmesh is loaded): when the player is in your zone but more than 20 yalms away, you walk to them first, then target and follow them. Party members can be anywhere in the zone; anyone else has to be close enough to see. The walk rounds off vnavmesh's corners so the run is smooth, picks a new path without stopping when they move, and stops about 2 yalms from them. It gives up in combat, after 90 seconds, if they leave the zone, or if it keeps getting stuck, and the stop word ends it.
+- **Walk to them with vnavmesh** (on, used when vnavmesh is loaded): when the player is in your zone but more than 20 yalms away, you walk to them first, then target and follow them. Party members can be anywhere in the zone; anyone else has to be close enough to see. The walk rounds off vnavmesh's corners so the run is smooth, picks a new path without stopping when they move, and stops about 2 yalms from them. Requests are ignored during combat (the stop word still works). A walk gives up in combat, after 90 seconds, if they leave the zone, or if it keeps getting stuck, and the stop word ends it.
 - Otherwise the player has to be nearby. If they aren't, PuppetMasterKK can **Reply by tell** with your own message, where `<target>` becomes the name they asked for: `uwu I'm sorry master I don't see <target> near me :c`. One reply per person every 10 seconds.
 - **Channels** picks where it listens (Tell, Party and Free Company to start). **Who can trigger it** works as it does for triggers, and **Never take requests from** blocks people outright.
 - **Who you'll follow**: when **Only follow** has names, only they are followed; **Never follow** always wins.

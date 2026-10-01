@@ -137,10 +137,8 @@ public static class ConfigurationMigrator
             if (reaction == null)
                 continue;
             reaction.Senders = SenderFilter.AnyoneFilter();
-            // "Any command" used to include chat and plugin commands; now it covers plain game commands only. Ask the
-            // user to look these over (they also react to anyone now).
-            if (reaction.AllowAllCommands)
-                configuration.ReviewAfterMigration.Add(string.IsNullOrWhiteSpace(reaction.Name) ? "Unnamed" : reaction.Name);
+            // Every one of these now answers anyone, as it did before: ask the user to look them over.
+            configuration.ReviewAfterMigration.Add(string.IsNullOrWhiteSpace(reaction.Name) ? "Unnamed" : reaction.Name);
         }
         configuration.IgnoreOwnMessages = true;
         configuration.Version = 4;

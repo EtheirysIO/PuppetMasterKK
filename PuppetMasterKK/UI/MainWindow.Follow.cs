@@ -172,7 +172,7 @@ internal sealed partial class MainWindow
         {
             W.Heading(onlyHeading);
             changed |= StringListEditor("only", only, ref onlyInput, NameHint, "Anyone (when this list is empty).",
-                                        text => PluginUiLogic.AddPlayerName(only, text));
+                                        text => PluginUiLogic.AddPlayerName(only, text), grantsTrust: true);
             Gap();
             W.Heading(neverHeading);
             changed |= StringListEditor("never", never, ref neverInput, NameHint, "Nobody.",

@@ -122,8 +122,8 @@ Run("PuppetMaster_v3.json", configuration =>
 
 var reviewed = DalamudJson.Load(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestConfigs", "PuppetMaster_v3.json")));
 ConfigurationMigrator.MigrateAndNormalize(reviewed);
-Assert(reviewed.ReviewAfterMigration.SequenceEqual(["Ami"]),
-    "migrating a reaction that allowed any command should ask the user to review it");
+Assert(reviewed.ReviewAfterMigration.SequenceEqual(["Ami", "Wave"]),
+    "every trigger the upgrade opens to anyone should be listed for review");
 
 var repaired = new Configuration();
 repaired.EmoteReplies.PerPlayerCooldownSeconds = 0;

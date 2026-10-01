@@ -214,8 +214,9 @@ namespace PuppetMasterKK
             }
             if (config.ReviewAfterMigration.Count > 0)
             {
-                Service.Notify($"Please review: {string.Join(", ", config.ReviewAfterMigration)}.\nThese can run any game command and react " +
-                       "to anyone. Chat commands, other plugins' commands and things like teleporting now have to be allowed one by one.",
+                Service.Notify($"Please review: {string.Join(", ", config.ReviewAfterMigration)}.\nThese still answer anyone, as they did " +
+                       "before. Set \"Who can trigger it\" on each. Chat commands, other plugins' commands and things like teleporting " +
+                       "now have to be allowed one by one.",
                        NotificationType.Warning);
                 config.ReviewAfterMigration.Clear();
             }
