@@ -143,9 +143,9 @@ internal sealed partial class MainWindow
             if (!table.Open)
                 return;
             ImGui.TableSetupColumn("Reaction", ImGuiTableColumnFlags.WidthStretch, 1f);
-            W.FixedColumn("State", 200f);
-            W.FixedColumn("Running", 70f);
-            W.FixedColumn("Waiting", 70f);
+            W.FixedColumn("State", 150f);
+            W.FixedColumn("Running", 64f);
+            W.FixedColumn("Waiting", 64f);
             W.TableHeaders(trackedCaps: true);
             var reactions = Config.Reactions;
             for (var index = 0; index < reactions.Count; index++)
@@ -189,7 +189,7 @@ internal sealed partial class MainWindow
                 }
                 ImGui.PopID();
                 ImGui.TableNextColumn();
-                W.Chip(W.Fit(text, Theme.S(190f)), color);
+                W.Chip(W.Fit(text, Theme.S(140f)), color);
                 if (ImGui.IsItemHovered())
                     W.Tooltip(text);
                 ImGui.TableNextColumn();

@@ -44,9 +44,9 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
         }
     }
 
-    public MainWindow() : base("PuppetMasterKK###PuppetMasterKKMain", "PuppetMasterKK", FontAwesomeIcon.TheaterMasks, new Vector2(900, 560))
+    public MainWindow() : base("PuppetMasterKK###PuppetMasterKKMain", "PuppetMasterKK", FontAwesomeIcon.TheaterMasks, new Vector2(620, 440))
     {
-        Size = new Vector2(1120, 740);
+        Size = new Vector2(780, 580);
         SizeCondition = ImGuiCond.FirstUseEver;
         selected = Math.Clamp(Config.CurrentReactionEdit, 0, Math.Max(0, Config.Reactions.Count - 1));
     }
@@ -103,17 +103,10 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
 
     protected override void DrawSidebarNav()
     {
-        var reactions = Config.Reactions;
-        var on = 0;
-        foreach (var reaction in reactions)
-        {
-            if (reaction.Enabled)
-                on++;
-        }
-        var activity = Activity;
+        DrawReactionNav();
 
-        if (W.NavRow("reactions", FontAwesomeIcon.Comments, "Reactions", page == Page.Reactions, $"{on} of {reactions.Count} on"))
-            page = Page.Reactions;
+        W.Spacer();
+        var activity = Activity;
         if (W.NavRow("emotes", FontAwesomeIcon.Smile, "Emote replies", page == Page.EmoteReplies,
                      Config.EmoteReplies.Enabled ? "On" : "Off"))
             page = Page.EmoteReplies;
@@ -125,8 +118,6 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
         if (W.NavRow("logs", FontAwesomeIcon.ListAlt, "Message log", page == Page.Logs,
                      Config.DebugLogTypes ? "Capturing" : "Not capturing"))
             page = Page.Logs;
-
-        W.Spacer();
         if (W.NavRow("settings", FontAwesomeIcon.Cog, "Settings", page == Page.Settings))
             page = Page.Settings;
     }

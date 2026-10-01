@@ -20,7 +20,7 @@ PuppetMasterKK lets trusted chat messages boss your character around—wave, pos
 
 The sidebar picks the page:
 
-- **Reactions** — create and edit reactions.
+- **Reactions** — your reactions are listed at the top of the sidebar; pick one to edit it, or **+** to make one.
 - **Emote replies** — answer emotes aimed at you.
 - **Activity** — what's running, waiting and recently finished.
 - **Message log** — capture chat to find channels and build reactions.
@@ -32,7 +32,7 @@ What's running is also shown at the bottom of the sidebar, with **Cancel**. The 
 
 Start with a simple wave. Once that works, you can decide how much chaos your friends are allowed to cause.
 
-1. Open **Reactions** and select **New reaction**.
+1. Select **+** next to **Reactions** in the sidebar.
 2. Give it a recognizable name, such as `Please do`.
 3. Under **Trigger**, keep **Phrase** and enter `please do`.
 4. Under **Who can trigger it**, keep **Friends**, **Free Company** and **Party and alliance**, or add specific players.

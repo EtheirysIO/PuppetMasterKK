@@ -69,46 +69,38 @@ internal sealed partial class MainWindow
 
     private void DrawReactionsPage()
     {
-        var reactions = Config.Reactions;
-        if (reactions.Count == 0 || SelectedReaction == null)
+        if (Config.Reactions.Count == 0 || SelectedReaction == null)
             Select(PluginUiLogic.EnsureReactionSelection(Config, selected));
-
-        var avail = ImGui.GetContentRegionAvail();
-        var listW = Theme.S(250f);
-        var gap = Theme.Space.Gutter;
-
-        if (ImGui.BeginChild("##reactionList", new Vector2(listW, avail.Y), false))
-            DrawReactionList();
-        ImGui.EndChild();
-
-        ImGui.SameLine(0f, gap);
-        if (ImGui.BeginChild("##reactionEditor", new Vector2(MathF.Max(1f, avail.X - listW - gap), avail.Y), false))
-        {
-            if (SelectedReaction is { } reaction)
-                DrawReactionEditor(reaction);
-        }
-        ImGui.EndChild();
+        if (SelectedReaction is { } reaction)
+            DrawReactionEditor(reaction);
     }
 
-    private void DrawReactionList()
+    private void NewReaction()
     {
-        if (W.IconTextButton(FontAwesomeIcon.Plus, "New reaction", ButtonKind.Primary, new Vector2(-1f, 0f)))
-        {
-            Config.Reactions.Add(Reaction.CreateDefault(
-                commandWhitelist: Config.DefaultCommandWhitelist,
-                commandBlacklist: Config.DefaultCommandBlacklist,
-                allowAllCommands: Config.DefaultAllowAllCommands,
-                motionOnly: Config.DefaultMotionOnly,
-                enabledChannels: Config.DefaultEnabledChannels));
-            Select(Config.Reactions.Count - 1);
-        }
-        Gap(2f);
-        W.SearchBox("##reactionSearch", ref reactionSearch, "Search reactions", 0f, 100);
-        Gap(2f);
+        Config.Reactions.Add(Reaction.CreateDefault(
+            commandWhitelist: Config.DefaultCommandWhitelist,
+            commandBlacklist: Config.DefaultCommandBlacklist,
+            allowAllCommands: Config.DefaultAllowAllCommands,
+            motionOnly: Config.DefaultMotionOnly,
+            enabledChannels: Config.DefaultEnabledChannels));
+        Select(Config.Reactions.Count - 1);
+        page = Page.Reactions;
+    }
+
+    /// <summary>The reactions, as sidebar rows: pick one to edit it. A search box appears once the list is long.</summary>
+    private void DrawReactionNav()
+    {
+        var reactions = Config.Reactions;
+        W.Heading("Reactions");
+        W.RightAlign(ImGui.GetFrameHeight());
+        ImGui.SetCursorPosY(ImGui.GetCursorPosY() - (ImGui.GetFrameHeight() - ImGui.GetTextLineHeight()) * 0.5f);
+        if (W.IconButton(FontAwesomeIcon.Plus, "##newReaction", "New reaction"))
+            NewReaction();
+        if (reactions.Count > 8 || reactionSearch.Length > 0)
+            W.SearchBox("##reactionSearch", ref reactionSearch, "Search", 0f, 100);
 
         var activity = Activity;
         var shown = 0;
-        var reactions = Config.Reactions;
         for (var index = 0; index < reactions.Count; index++)
         {
             var reaction = reactions[index];
@@ -117,16 +109,25 @@ internal sealed partial class MainWindow
             shown++;
 
             var running = IsRunning(activity, reaction);
-            var (statusText, statusColor) = StatusOf(reaction);
-            var trigger = reaction.UseRegex ? "Regex" : $"\"{reaction.TriggerPhrase}\"";
-            var channels = reaction.EnabledChannels.Count == 1 ? "1 channel" : $"{reaction.EnabledChannels.Count} channels";
+            var status = PluginUiLogic.GetStatus(reaction);
+            var (icon, subtitle) = running
+                ? (FontAwesomeIcon.Play, "Running")
+                : status switch
+                {
+                    ReactionUiStatus.Disabled => (FontAwesomeIcon.CommentSlash, "Off"),
+                    ReactionUiStatus.Ready => (FontAwesomeIcon.Comment, "On"),
+                    ReactionUiStatus.Unsafe => (FontAwesomeIcon.ExclamationTriangle, "On · anyone in public"),
+                    ReactionUiStatus.NoChannels => (FontAwesomeIcon.ExclamationTriangle, "No channels"),
+                    _ => (FontAwesomeIcon.ExclamationTriangle, "Trigger not valid"),
+                };
             ImGui.PushID(index);
-            var clicked = W.ListRow("reaction", DisplayName(reaction), index == selected, $"{trigger} · {channels}",
-                                    running ? Theme.Accent : statusColor, running, reaction.Enabled ? null : "Off",
-                                    running ? "Running" : statusText);
+            var clicked = W.NavRow("reaction", icon, DisplayName(reaction), page == Page.Reactions && index == selected, subtitle);
             ImGui.PopID();
             if (clicked)
+            {
                 Select(index);
+                page = Page.Reactions;
+            }
         }
         if (shown == 0)
             Hint(reactions.Count == 0 ? "No reactions yet." : "No reactions match.");
@@ -331,7 +332,7 @@ internal sealed partial class MainWindow
                     senders.Friends = friends;
                     changed();
                 }
-                ImGui.SameLine(0f, Theme.S(20f));
+                FlowSameLine(W.ToggleWidth("Free Company##fc"));
                 var fc = senders.FreeCompany;
                 if (W.Toggle("Free Company##fc", ref fc,
                              tooltip: "Your FC chat, and FC members the game has listed this session (open the FC member list once)"))
@@ -339,7 +340,7 @@ internal sealed partial class MainWindow
                     senders.FreeCompany = fc;
                     changed();
                 }
-                ImGui.SameLine(0f, Theme.S(20f));
+                FlowSameLine(W.ToggleWidth("Party and alliance##party"));
                 var party = senders.Party;
                 if (W.Toggle("Party and alliance##party", ref party))
                 {
@@ -516,6 +517,14 @@ internal sealed partial class MainWindow
             var allowed = Service.IsCommandAllowed(reaction, parsed.Main, out var reason);
             preview.Add(new PreviewLine(parsed.ToString(), allowed, Capitalize(reason)));
         }
+    }
+
+    /// <summary>Puts the next item (this wide) on the same line if it fits in the card, else on the next line.</summary>
+    private static void FlowSameLine(float nextWidth)
+    {
+        ImGui.SameLine(0f, Theme.S(20f));
+        if (W.Avail() < nextWidth)
+            ImGui.NewLine();
     }
 
     private static string Capitalize(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];

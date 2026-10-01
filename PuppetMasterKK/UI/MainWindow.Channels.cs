@@ -11,9 +11,12 @@ internal sealed partial class MainWindow
 {
     private readonly record struct ChannelEntry(int Id, string Name);
 
-    // Built once: the official channels never change while the game runs. Custom channels are read live.
-    private static readonly ChannelEntry[][] OfficialCategories = BuildOfficialCategories();
-    private static readonly Dictionary<int, string> OfficialNames = BuildOfficialNames();
+    // Built once, on first use: the official channels never change while the game runs (custom ones are read live).
+    // Not in a static initializer: those run in file order, and the name tables below would still be null.
+    private static ChannelEntry[][]? officialCategories;
+    private static Dictionary<int, string>? officialNames;
+    private static ChannelEntry[][] OfficialCategories => officialCategories ??= BuildOfficialCategories();
+    private static Dictionary<int, string> OfficialNames => officialNames ??= BuildOfficialNames();
     private static readonly string[] CategoryNames = PluginUiLogic.ChannelCategoryLabels; // ..., "Custom" last
 
     private static readonly Dictionary<XivChatType, string> FriendlyNames = new()

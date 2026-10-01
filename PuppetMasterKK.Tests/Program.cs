@@ -1107,6 +1107,10 @@ static void RunCommandPolicyTests()
     var trigger = new Regex(@"(?i)\b(?:" + ReactionCommandMatcher.EscapeTriggerPhrase("please.do") + @")\s+(?:\((.*?)\)|(\w+))");
     Assert(!trigger.IsMatch("pleaseXdo wave") && trigger.IsMatch("please.do wave"), "a dot in the trigger should be literal");
 
+    // Static setup runs in file order: these fail here (not in game) if a static is used before it's set.
+    Assert(CommandCatalog.Empty.Classify("/logout") == CommandKind.Blocked && CommandRateLimiter.Shared != null,
+        "the shared catalog and rate limiter should initialize");
+
     Console.WriteLine("PASS command policy");
 }
 
