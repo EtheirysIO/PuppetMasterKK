@@ -170,7 +170,7 @@ internal sealed partial class MainWindow
             W.Tooltip(entry.Text);
 
         ImGui.TableNextColumn();
-        if (W.IconButton(FontAwesomeIcon.Plus, "##newReaction", "Make a reaction from this message"))
+        if (W.IconButton(FontAwesomeIcon.Plus, "##newReaction", "Make a trigger from this message"))
             CreateReactionFromLog(entry);
         if (!IsOfficialChannel(entry.ChatTypeId) && !IsConfiguredCustomChannel(entry.ChatTypeId))
         {

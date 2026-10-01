@@ -172,12 +172,12 @@ internal static class CommandPolicy
         }
         if (blacklist.Contains(canonicalCommand))
         {
-            reason = "blocked by this reaction";
+            reason = "blocked by this trigger";
             return false;
         }
         if (whitelist.Contains(canonicalCommand))
         {
-            reason = "allowed by this reaction";
+            reason = "allowed by this trigger";
             return true;
         }
         if (kind == CommandKind.Emote)
@@ -196,7 +196,7 @@ internal static class CommandPolicy
             CommandKind.Sensitive => "this command must be allowed one by one",
             CommandKind.Plugin => "plugin commands must be allowed one by one",
             CommandKind.Unknown => "not a known command",
-            _ => "not allowed by this reaction",
+            _ => "not allowed by this trigger",
         };
         return false;
     }
@@ -213,7 +213,7 @@ internal static class CommandPolicy
         var localized = catalog.Canonicalize(WaitCommand);
         if (blacklist.Contains(WaitCommand) || blacklist.Contains(localized))
         {
-            reason = "blocked by this reaction";
+            reason = "blocked by this trigger";
             return false;
         }
         if (fromReactionCommands || whitelist.Contains(WaitCommand) || whitelist.Contains(localized))

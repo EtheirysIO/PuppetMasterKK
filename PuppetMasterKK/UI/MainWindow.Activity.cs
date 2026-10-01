@@ -33,7 +33,7 @@ internal sealed partial class MainWindow
                 using var table = W.Table("##runningTable", 4);
                 if (table.Open)
                 {
-                    ImGui.TableSetupColumn("Reaction", ImGuiTableColumnFlags.WidthStretch, 1f);
+                    ImGui.TableSetupColumn("Trigger", ImGuiTableColumnFlags.WidthStretch, 1f);
                     ImGui.TableSetupColumn("Command", ImGuiTableColumnFlags.WidthStretch, 2f);
                     W.FixedColumn("Started", 80f);
                     W.FixedColumn("##stop", 40f);
@@ -54,7 +54,7 @@ internal sealed partial class MainWindow
                         ImGui.TextColored(Theme.Dim, run.StartedAt.ToString("HH:mm:ss"));
                         ImGui.TableNextColumn();
                         ImGui.PushID((int)run.Id);
-                        if (W.IconButton(FontAwesomeIcon.Stop, "##stop", "Stop this reaction", danger: true))
+                        if (W.IconButton(FontAwesomeIcon.Stop, "##stop", "Stop this trigger", danger: true))
                             StopReaction(run.ReactionId);
                         ImGui.PopID();
                     }
@@ -71,7 +71,7 @@ internal sealed partial class MainWindow
                 using var table = W.Table("##queuedTable", 3);
                 if (table.Open)
                 {
-                    ImGui.TableSetupColumn("Reaction", ImGuiTableColumnFlags.WidthStretch, 1f);
+                    ImGui.TableSetupColumn("Trigger", ImGuiTableColumnFlags.WidthStretch, 1f);
                     ImGui.TableSetupColumn("Command", ImGuiTableColumnFlags.WidthStretch, 2f);
                     W.FixedColumn("Since", 80f);
                     W.TableHeaders(trackedCaps: true);
@@ -94,14 +94,14 @@ internal sealed partial class MainWindow
         using (W.Card("recent", "Recently finished"))
         {
             if (activity.Recent.Length == 0)
-                ImGui.TextColored(Theme.Faint, "Finished reactions show up here.");
+                ImGui.TextColored(Theme.Faint, "Finished triggers show up here.");
             else
             {
                 using var table = W.Table("##recentTable", 4);
                 if (table.Open)
                 {
                     W.FixedColumn("Result", 110f);
-                    ImGui.TableSetupColumn("Reaction", ImGuiTableColumnFlags.WidthStretch, 1f);
+                    ImGui.TableSetupColumn("Trigger", ImGuiTableColumnFlags.WidthStretch, 1f);
                     W.FixedColumn("Took", 80f);
                     W.FixedColumn("At", 80f);
                     W.TableHeaders(trackedCaps: true);
@@ -135,14 +135,14 @@ internal sealed partial class MainWindow
 
     private void DrawRoster(ReactionVisualizerSnapshot activity)
     {
-        using (W.Card("roster", "All reactions", $"{Config.Reactions.Count}"))
+        using (W.Card("roster", "All triggers", $"{Config.Reactions.Count}"))
         {
             W.Segmented("##rosterFilter", RosterFilters, ref rosterFilter, 0f);
             Gap(4f);
             using var table = W.Table("##rosterTable", 4);
             if (!table.Open)
                 return;
-            ImGui.TableSetupColumn("Reaction", ImGuiTableColumnFlags.WidthStretch, 1f);
+            ImGui.TableSetupColumn("Trigger", ImGuiTableColumnFlags.WidthStretch, 1f);
             W.FixedColumn("State", 150f);
             W.FixedColumn("Running", 64f);
             W.FixedColumn("Waiting", 64f);

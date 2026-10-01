@@ -94,10 +94,10 @@ internal sealed partial class MainWindow
     private void DrawReactionNav()
     {
         var reactions = Config.Reactions;
-        W.Heading("Reactions");
+        W.Heading("Triggers");
         W.RightAlign(ImGui.GetFrameHeight());
         ImGui.SetCursorPosY(ImGui.GetCursorPosY() - (ImGui.GetFrameHeight() - ImGui.GetTextLineHeight()) * 0.5f);
-        if (W.IconButton(FontAwesomeIcon.Plus, "##newReaction", "New reaction"))
+        if (W.IconButton(FontAwesomeIcon.Plus, "##newReaction", "New trigger"))
             NewReaction();
         if (reactions.Count > 8 || reactionSearch.Length > 0)
             W.SearchBox("##reactionSearch", ref reactionSearch, "Search", 0f, 100);
@@ -124,7 +124,7 @@ internal sealed partial class MainWindow
                     _ => (FontAwesomeIcon.ExclamationTriangle, "Trigger not valid"),
                 };
             ImGui.PushID(index);
-            var clicked = W.NavRow("reaction", icon, DisplayName(reaction), page == Page.Reactions && index == selected, subtitle);
+            var clicked = W.NavRow("trigger", icon, DisplayName(reaction), page == Page.Reactions && index == selected, subtitle);
             ImGui.PopID();
             if (clicked)
             {
@@ -133,7 +133,7 @@ internal sealed partial class MainWindow
             }
         }
         if (shown == 0)
-            Hint(reactions.Count == 0 ? "No reactions yet." : "No reactions match.");
+            Hint(reactions.Count == 0 ? "No triggers yet." : "No triggers match.");
     }
 
     private static bool IsRunning(ReactionVisualizerSnapshot activity, Reaction reaction)
@@ -177,20 +177,20 @@ internal sealed partial class MainWindow
         ImGui.SetCursorScreenPos(new Vector2(slot.Max.X - ReactionHeaderWidth(), slot.CenterY - h * 0.5f));
 
         var enabled = reaction.Enabled;
-        if (W.Toggle("On##reactionOn", ref enabled, tooltip: enabled ? "Turn this reaction off" : "Turn this reaction on"))
+        if (W.Toggle("On##reactionOn", ref enabled, tooltip: enabled ? "Turn this trigger off" : "Turn this trigger on"))
         {
             PluginUiLogic.SetReactionEnabled(reaction, enabled, ChatHandler.CancelReaction);
             Changed();
         }
         ImGui.SameLine(0f, gap * 2f);
-        if (W.IconButton(FontAwesomeIcon.Copy, "##duplicate", "Duplicate this reaction"))
+        if (W.IconButton(FontAwesomeIcon.Copy, "##duplicate", "Duplicate this trigger"))
         {
             Config.Reactions.Insert(selected + 1, PluginUiLogic.CloneReaction(reaction));
             Select(selected + 1);
         }
         ImGui.SameLine(0f, gap);
         var canDelete = Config.Reactions.Count > 1;
-        if (W.IconButton(FontAwesomeIcon.Trash, "##delete", canDelete ? "Delete this reaction" : "The last reaction can't be deleted",
+        if (W.IconButton(FontAwesomeIcon.Trash, "##delete", canDelete ? "Delete this trigger" : "The last trigger can't be deleted",
                          danger: true, enabled: canDelete))
             confirmDelete = true;
     }
@@ -198,15 +198,15 @@ internal sealed partial class MainWindow
     private void DrawReactionDialogs()
     {
         if (SelectedReaction is { } reaction &&
-            Modal.Confirm("Delete reaction##confirmDelete", ref confirmDelete, $"Delete \"{DisplayName(reaction)}\"?",
+            Modal.Confirm("Delete trigger##confirmDelete", ref confirmDelete, $"Delete \"{DisplayName(reaction)}\"?",
                           "Delete", danger: true, detail: "This can't be undone.") &&
             PluginUiLogic.TryDeleteReaction(Config.Reactions, selected, out var next, ChatHandler.CancelReaction))
             Select(next);
 
         if (Modal.Confirm("Allow any game command##confirmAllowAll", ref confirmAllowAll,
                           allowAllTarget == null
-                              ? "Let new reactions run any game command that isn't blocked?"
-                              : "Let this reaction run any game command that isn't blocked?", "Allow",
+                              ? "Let new triggers run any game command that isn't blocked?"
+                              : "Let this trigger run any game command that isn't blocked?", "Allow",
                           detail: "Chat commands, other plugins' commands and ones like teleporting or leaving the party still " +
                                   "have to be listed one by one, and /logout, /shutdown, /pmkk and /xl… never run. Use this only " +
                                   "with senders and channels you trust."))
@@ -233,7 +233,7 @@ internal sealed partial class MainWindow
         using (W.Card("name", "Name"))
         {
             var name = reaction.Name;
-            if (W.TextInput("##reactionName", ref name, "Name this reaction", 0f, 100))
+            if (W.TextInput("##reactionName", ref name, "Name this trigger", 0f, 100))
             {
                 reaction.Name = name;
                 Changed();
@@ -250,7 +250,7 @@ internal sealed partial class MainWindow
         DrawSendersCard("reactionSenders", reaction.Senders, () => RulesChanged(reaction),
                         PluginUiLogic.ListensToStrangers(reaction)
                             ? "Anyone who can talk in a public channel you picked (Say, Shout, Yell, Tell, Party, Novice Network, " +
-                              "cross-world linkshells…) can trigger this reaction."
+                              "cross-world linkshells…) can set off this trigger."
                             : null);
         DrawChannelsCard(reaction);
         DrawCommandsCard(reaction);
@@ -261,7 +261,7 @@ internal sealed partial class MainWindow
 
     private void DrawTriggerCard(Reaction reaction)
     {
-        using (W.Card("trigger", "Trigger", reaction.UseRegex ? "Regex pattern" : "Phrase"))
+        using (W.Card("trigger", "Listens for", reaction.UseRegex ? "Regex pattern" : "Phrase"))
         {
             var mode = reaction.UseRegex ? 1 : 0;
             if (W.Segmented("##triggerMode", TriggerModes, ref mode, W.SegmentedWidth(TriggerModes)))

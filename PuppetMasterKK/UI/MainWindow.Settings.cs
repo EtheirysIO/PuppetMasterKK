@@ -9,7 +9,7 @@ namespace PuppetMasterKK.UI;
 
 internal sealed partial class MainWindow
 {
-    private static readonly string[] SettingsTabs = ["General", "New reactions", "Custom channels", "Appearance"];
+    private static readonly string[] SettingsTabs = ["General", "New triggers", "Custom channels", "Appearance"];
     private int settingsTab;
     private string defaultAllowInput = string.Empty;
     private string defaultBlockInput = string.Empty;
@@ -55,14 +55,14 @@ internal sealed partial class MainWindow
                 Config.IgnoreOwnMessages = ignoreOwn;
                 Changed();
             }
-            Hint("Your own chat lines never trigger a reaction. Keeps a reaction that posts to chat from setting itself off " +
-                 "over and over. Turn off only to test reactions on yourself.");
+            Hint("Your own chat lines never set off a trigger. Keeps a trigger that posts to chat from setting itself off " +
+                 "over and over. Turn off only to test triggers on yourself.");
         }
 
-        using (W.Card("notificationDefaults", "Notifications", "Reactions set to Default use these"))
+        using (W.Card("notificationDefaults", "Notifications", "Triggers set to Default use these"))
         {
             var progress = Config.ShowReactionNotifications;
-            if (W.Toggle("While a reaction runs and when it ends##showProgress", ref progress))
+            if (W.Toggle("While a trigger runs and when it ends##showProgress", ref progress))
             {
                 Config.ShowReactionNotifications = progress;
                 Changed();
@@ -70,7 +70,7 @@ internal sealed partial class MainWindow
             Gap(2f);
             var suppressed = Config.ShowSuppressedReactionNotifications;
             if (W.Toggle("When a trigger is ignored##showSuppressed", ref suppressed,
-                         tooltip: "Shown at most every few seconds, when a reaction is busy or cooling down"))
+                         tooltip: "Shown at most every few seconds, when a trigger is busy or cooling down"))
             {
                 Config.ShowSuppressedReactionNotifications = suppressed;
                 Changed();
@@ -79,14 +79,14 @@ internal sealed partial class MainWindow
 
         using (W.Card("help", "Commands"))
         {
-            Hint("/pmkk (or /puppetmasterkk) opens this window. /pmkk on|off [name] turns every reaction (or the named ones) " +
+            Hint("/pmkk (or /puppetmasterkk) opens this window. /pmkk on|off [name] turns every trigger (or the named ones) " +
                  "on or off. /pmkk logging on|off|clear|save controls the message log, and /pmkk viz opens Activity.");
         }
     }
 
     private void DrawNewReactionSettings()
     {
-        W.TextWrapped("New reactions start with these. Existing reactions keep their own settings.", Theme.Dim);
+        W.TextWrapped("New triggers start with these. Existing triggers keep their own settings.", Theme.Dim);
         Gap(4f);
 
         using (W.Card("defaultCommands", "Commands"))
@@ -129,11 +129,11 @@ internal sealed partial class MainWindow
         var count = Config.DefaultEnabledChannels.Count;
         using (W.Card("defaultChannels", "Channels", count == 1 ? "1 picked" : $"{count} picked"))
         {
-            DrawChannelChips(Config.DefaultEnabledChannels, "New reactions start without channels.");
+            DrawChannelChips(Config.DefaultEnabledChannels, "New triggers start without channels.");
             Gap(2f);
             if (W.SecondaryButton("Pick channels##pickDefaultChannels"))
-                OpenChannelPicker("Channels for new reactions", Config.DefaultEnabledChannels, null);
-            Hint("A reaction made from the message log listens only to the channel that message came in on.");
+                OpenChannelPicker("Channels for new triggers", Config.DefaultEnabledChannels, null);
+            Hint("A trigger made from the message log listens only to the channel that message came in on.");
         }
     }
 

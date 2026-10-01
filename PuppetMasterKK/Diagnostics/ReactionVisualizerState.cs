@@ -110,5 +110,5 @@ internal static class ReactionVisualizerState
         }
     }
 
-    private static string DisplayName(string name) => string.IsNullOrWhiteSpace(name) ? "Unnamed reaction" : name;
+    private static string DisplayName(string name) => string.IsNullOrWhiteSpace(name) ? "Unnamed trigger" : name;
 }

@@ -70,7 +70,7 @@ namespace PuppetMasterKK
         public Regex? CustomRx;
 
         public static Reaction CreateDefault(
-            string name = "Reaction",
+            string name = "Trigger",
             IEnumerable<string>? commandWhitelist = null,
             IEnumerable<string>? commandBlacklist = null,
             bool allowAllCommands = false,

@@ -203,7 +203,7 @@ namespace PuppetMasterKK
             var config = Service.configuration!;
             if (Service.LegacyConfigImported)
             {
-                Notify("Your Puppet Master reactions and settings were brought over. The old settings file wasn't changed.",
+                Notify("Your Puppet Master triggers and settings were brought over. The old settings file wasn't changed.",
                        Dalamud.Interface.ImGuiNotification.NotificationType.Info);
             }
             else if (Service.LegacyUnreadable.Count > 0)

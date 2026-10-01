@@ -263,7 +263,7 @@ namespace PuppetMasterKK
                     notification = Service.NotificationManager.AddNotification(new Notification
                     {
                         Title = "PuppetMasterKK",
-                        Content = $"Starting reaction: {reaction.Name}",
+                        Content = $"Starting trigger: {reaction.Name}",
                         Type = NotificationType.Info,
                         Progress = 0,
                         InitialDuration = TimeSpan.MaxValue,
@@ -394,7 +394,7 @@ namespace PuppetMasterKK
                 if (notification != null && !pluginToken.IsCancellationRequested)
                     await FinishReactionNotificationAsync(notification, reaction.Name, false, ex.Message, pluginToken);
                 else
-                    PrintErrorOnFramework($"[PuppetMasterKK] Reaction {reaction.Name} failed: {ex.Message}", pluginToken);
+                    PrintErrorOnFramework($"[PuppetMasterKK] Trigger {reaction.Name} failed: {ex.Message}", pluginToken);
             }
             finally
             {
@@ -465,7 +465,7 @@ namespace PuppetMasterKK
                     Service.NotificationManager.AddNotification(new Notification
                     {
                         Title = "PuppetMasterKK",
-                        Content = $"Reaction suppressed: {reaction.Name}\n{reasonText}.{countText}",
+                        Content = $"Trigger suppressed: {reaction.Name}\n{reasonText}.{countText}",
                         Type = NotificationType.Warning,
                         InitialDuration = TimeSpan.FromSeconds(4),
                     });
@@ -501,7 +501,7 @@ namespace PuppetMasterKK
                     Service.NotificationManager.AddNotification(new Notification
                     {
                         Title = "PuppetMasterKK",
-                        Content = $"Reaction failed: {reaction.Name}\n{error}",
+                        Content = $"Trigger failed: {reaction.Name}\n{error}",
                         Type = NotificationType.Error,
                         InitialDuration = TimeSpan.FromSeconds(5),
                     });
@@ -541,7 +541,7 @@ namespace PuppetMasterKK
                     Service.NotificationManager.AddNotification(new Notification
                     {
                         Title = "PuppetMasterKK",
-                        Content = $"Reaction scheduler failed: {reaction.Name}\n{error}" +
+                        Content = $"Trigger scheduler failed: {reaction.Name}\n{error}" +
                                   (discarded > 0 ? $"\n{discarded} pending trigger(s) discarded." : string.Empty),
                         Type = NotificationType.Error,
                         InitialDuration = TimeSpan.FromSeconds(6),
@@ -586,10 +586,10 @@ namespace PuppetMasterKK
                 {
                     Title = "PuppetMasterKK",
                     Content = error != null
-                        ? $"Reaction failed: {reactionName}\n{error}"
+                        ? $"Trigger failed: {reactionName}\n{error}"
                         : cancelled
-                            ? $"Cancelled reaction: {reactionName}"
-                            : $"Completed reaction: {reactionName}",
+                            ? $"Cancelled trigger: {reactionName}"
+                            : $"Completed trigger: {reactionName}",
                     Type = error != null
                         ? NotificationType.Error
                         : cancelled ? NotificationType.Warning : NotificationType.Success,

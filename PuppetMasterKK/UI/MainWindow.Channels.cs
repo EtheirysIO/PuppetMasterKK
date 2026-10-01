@@ -131,7 +131,7 @@ internal sealed partial class MainWindow
         var count = reaction.EnabledChannels.Count;
         using (W.Card("channels", "Channels", count == 1 ? "1 picked" : $"{count} picked"))
         {
-            DrawChannelChips(reaction.EnabledChannels, "This reaction isn't listening anywhere yet.");
+            DrawChannelChips(reaction.EnabledChannels, "This trigger isn't listening anywhere yet.");
             Gap(2f);
             if (W.SecondaryButton("Pick channels##pickChannels"))
                 OpenChannelPicker($"Channels for {DisplayName(reaction)}", reaction.EnabledChannels,

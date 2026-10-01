@@ -21,6 +21,7 @@
     "LastUpdated": "1785507614",
     "DownloadLinkInstall": "https://github.com/OWNER/REPO/releases/download/7.5.5.4/latest.zip",
     "DownloadLinkTesting": "https://github.com/OWNER/REPO/releases/download/7.5.5.4/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/OWNER/REPO/releases/download/7.5.5.4/latest.zip"
+    "DownloadLinkUpdate": "https://github.com/OWNER/REPO/releases/download/7.5.5.4/latest.zip",
+    "IconUrl": "https://raw.githubusercontent.com/OWNER/REPO/main/PuppetMasterKK/images/icon.png"
   }
 ]

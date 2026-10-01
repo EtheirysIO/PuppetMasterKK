@@ -165,7 +165,7 @@ internal static class PluginUiLogic
             ReactionExecutionPolicy.QueueEveryTrigger => "Runs every request afterward (up to 16 waiting).",
             ReactionExecutionPolicy.QueueLatestTrigger => "Keeps only the newest request.",
             ReactionExecutionPolicy.RestartImmediately => "Stops the remaining steps and reacts again immediately.",
-            _ => "Ignores the new message while this reaction is busy.",
+            _ => "Ignores the new message while this trigger is busy.",
         };
     }
 
@@ -269,7 +269,7 @@ internal static class PluginUiLogic
         Configuration configuration)
     {
         var reaction = Reaction.CreateDefault(
-            $"Reaction from {channelName}",
+            $"Trigger from {channelName}",
             configuration.DefaultCommandWhitelist,
             configuration.DefaultCommandBlacklist,
             configuration.DefaultAllowAllCommands,

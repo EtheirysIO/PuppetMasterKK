@@ -100,7 +100,7 @@ namespace PuppetMasterKK
             }
             configuration?.Save();
             if (configuration != null)
-                ChatGui.Print($"[PuppetMasterKK] {(enabled ? "Turned on" : "Turned off")} {Plural(configuration.Reactions.Count, "reaction")}.");
+                ChatGui.Print($"[PuppetMasterKK] {(enabled ? "Turned on" : "Turned off")} {Plural(configuration.Reactions.Count, "trigger")}.");
         }
 
         public static void SetEnabled(string name, bool enabled = true, StringComparison sc = StringComparison.OrdinalIgnoreCase)
@@ -117,8 +117,8 @@ namespace PuppetMasterKK
                 }
             }
             ChatGui.Print(found > 0
-                ? $"[PuppetMasterKK] {(enabled ? "Turned on" : "Turned off")} {Plural(found, "reaction")} named \"{name}\"."
-                : $"[PuppetMasterKK] No reaction is named \"{name}\".");
+                ? $"[PuppetMasterKK] {(enabled ? "Turned on" : "Turned off")} {Plural(found, "trigger")} named \"{name}\"."
+                : $"[PuppetMasterKK] No trigger is named \"{name}\".");
             configuration?.Save();
         }
 
@@ -250,7 +250,7 @@ namespace PuppetMasterKK
             if (config.Reactions.Count > 1)
                 return false;
             var only = config.Reactions[0];
-            return !only.Enabled && !only.UseRegex && only.Name == "Reaction" &&
+            return !only.Enabled && !only.UseRegex && (only.Name == "Reaction" || only.Name == "Trigger") &&
                    only.TriggerPhrase == Reaction.DefaultTriggerPhrase && only.EnabledChannels.Count == 0;
         }
 

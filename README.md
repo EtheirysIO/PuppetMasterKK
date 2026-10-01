@@ -1,5 +1,7 @@
 # PuppetMasterKK
 
+<img src="PuppetMasterKK/images/icon.png" alt="PuppetMasterKK" width="128" align="right" />
+
 Add this URL to Dalamud's custom plugin repositories:
 
 ```text

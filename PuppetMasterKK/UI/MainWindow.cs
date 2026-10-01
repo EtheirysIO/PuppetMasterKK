@@ -87,7 +87,7 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
 
     protected override string PageTitle => page switch
     {
-        Page.Reactions => SelectedReaction is { } reaction ? DisplayName(reaction) : "Reactions",
+        Page.Reactions => SelectedReaction is { } reaction ? DisplayName(reaction) : "Triggers",
         Page.EmoteReplies => "Emote replies",
         Page.Activity => "Activity",
         Page.Logs => "Message log",
@@ -96,7 +96,7 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
 
     protected override string PageKey => page switch
     {
-        Page.Reactions => SelectedReaction is { } shown ? $"reactions/{System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(shown)}" : "reactions",
+        Page.Reactions => SelectedReaction is { } shown ? $"triggers/{System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(shown)}" : "triggers",
         Page.Settings => $"settings/{settingsTab}",
         _ => page.ToString(),
     };
@@ -128,7 +128,7 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
         if (active.Length == 0)
             return null;
         var first = active[0];
-        var label = active.Length == 1 ? $"Running {first.ReactionName}" : $"{active.Length} reactions running";
+        var label = active.Length == 1 ? $"Running {first.ReactionName}" : $"{active.Length} triggers running";
         return new RunningOperation(label, FirstLine(first.Command), Cancel: CancelAllRunning);
     }
 
@@ -198,7 +198,7 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
     private static void Changed() => ConfigSaver.MarkDirty();
 
     private static string DisplayName(Reaction reaction)
-        => string.IsNullOrWhiteSpace(reaction.Name) ? "Unnamed reaction" : reaction.Name;
+        => string.IsNullOrWhiteSpace(reaction.Name) ? "Unnamed trigger" : reaction.Name;
 
     private static string FirstLine(string text)
     {

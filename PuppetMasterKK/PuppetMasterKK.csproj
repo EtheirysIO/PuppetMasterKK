@@ -29,6 +29,11 @@
   <!-- phys1ksUI: the shared UI kit, compiled in as source (N:\FFXIV\phys1ksUI). -->
   <Import Project="..\..\phys1ksUI\phys1ksUI.props" />
 
+  <!-- The plugin installer's icon: images\icon.png next to the dll (and in the release zip). -->
+  <ItemGroup>
+    <None Include="images\icon.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Update="DalamudPackager" Version="15.0.0" />
     <PackageReference Update="DotNet.ReproducibleBuilds" Version="2.0.2" />
