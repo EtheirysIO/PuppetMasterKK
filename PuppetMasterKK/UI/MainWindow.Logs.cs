@@ -33,7 +33,7 @@ internal sealed partial class MainWindow
             SaveLogs();
         ImGui.SameLine(0f, Theme.Space.Tight);
         var anyDiscarded = ChatHandler.DroppedMessageCount > 0 || ChatHandler.DroppedRetriggerCount > 0;
-        if (W.SecondaryButton("Clear", enabled: any || anyDiscarded, tooltip: "Clear the captured messages and the discarded counts"))
+        if (W.SecondaryButton("Clear", enabled: any || anyDiscarded, tooltip: "Clear the captured messages and the Activity counts"))
         {
             DebugLogBuffer.Clear();
             ChatHandler.ResetDroppedMessageCount();

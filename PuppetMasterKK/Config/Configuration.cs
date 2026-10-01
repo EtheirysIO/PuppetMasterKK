@@ -253,6 +253,9 @@ namespace PuppetMasterKK
         // Message log capture: this session only, never saved.
         [JsonIgnore]
         public bool DebugLogTypes { get; set; } = false;
+        // Practice mode: triggers match, wait and queue as usual but send nothing. This session only, never saved.
+        [JsonIgnore]
+        public bool PracticeMode { get; set; } = false;
         public bool ShowReactionNotifications { get; set; } = true;
         public bool ShowSuppressedReactionNotifications { get; set; } = false;
         public List<string> DefaultCommandWhitelist { get; set; } = [];

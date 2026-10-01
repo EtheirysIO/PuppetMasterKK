@@ -62,9 +62,10 @@ namespace PuppetMasterKK
 /pmkk on|off - turn every trigger on or off (off also stops walking and mimicking)
 /pmkk on|off <TriggerName> - turn triggers with that name on or off
 /pmkk logging on|off - capture chat messages in the message log (this session)
-/pmkk logging clear - clear the message log and the discarded counts
+/pmkk logging clear - clear the message log and the Activity counts
 /pmkk logging save - save the message log to a file
-/pmkk viz - show what's running (Activity)"
+/pmkk viz - show what's running (Activity)
+/pmkk practice on|off - practice mode: triggers run but send nothing (this session)"
                 });
                 shortCommandRegistered = Service.CommandManager.AddHandler(ShortCommandName, new CommandInfo(OnCommand)
                 {
@@ -281,14 +282,37 @@ namespace PuppetMasterKK
                 {
                     HandleLoggingCommand(ptc.Args);
                 }
+                else if (ptc.Main.Equals("/practice"))
+                {
+                    HandlePracticeCommand(ptc.Args);
+                }
                 else if (ptc.Main.Equals("/viz") || ptc.Main.Equals("/visualizer"))
                 {
                     mainWindow?.Show(Page.Activity);
                 }
                 else
                 {
-                    Service.ChatGui.PrintError("[PuppetMasterKK] Unknown option. Use /pmkk, /pmkk on|off [name], /pmkk logging or /pmkk viz.");
+                    Service.ChatGui.PrintError("[PuppetMasterKK] Unknown option. Use /pmkk, /pmkk on|off [name], /pmkk logging, /pmkk practice or /pmkk viz.");
                 }
+            }
+        }
+
+        private static void HandlePracticeCommand(string args)
+        {
+            var config = Service.configuration!;
+            switch (args.Trim().ToLowerInvariant())
+            {
+                case "on":
+                    ChatHandler.SetPracticeMode(config, true);
+                    Service.ChatGui.Print("[PuppetMasterKK] Practice mode on: triggers run but nothing is sent.");
+                    break;
+                case "off":
+                    ChatHandler.SetPracticeMode(config, false);
+                    Service.ChatGui.Print("[PuppetMasterKK] Practice mode off.");
+                    break;
+                default:
+                    Service.ChatGui.Print($"[PuppetMasterKK] Practice mode is {(config.PracticeMode ? "on" : "off")}. Use /pmkk practice on|off.");
+                    break;
             }
         }
 
@@ -308,7 +332,7 @@ namespace PuppetMasterKK
                     var clearedCount = DebugLogBuffer.Snapshot().Length;
                     DebugLogBuffer.Clear();
                     ChatHandler.ResetDroppedMessageCount();
-                    Service.ChatGui.Print($"[PuppetMasterKK] Cleared {clearedCount} captured log entr{(clearedCount == 1 ? "y" : "ies")} and overload counters.");
+                    Service.ChatGui.Print($"[PuppetMasterKK] Cleared {clearedCount} captured log entr{(clearedCount == 1 ? "y" : "ies")} and the Activity counts.");
                     break;
                 case "save":
                     try

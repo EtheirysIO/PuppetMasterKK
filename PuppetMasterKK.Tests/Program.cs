@@ -227,6 +227,8 @@ RunDebugLogBufferTests();
 RunRetriggerQueueTests();
 RunRetriggerSchedulerTests();
 RunReactionVisualizerStateTests();
+RunActivityCounterTests();
+RunPracticeAndTestAllTests();
 RunConfigurationUpgradeTransactionTests();
 RunDalamudRoundTripTests();
 RunWaitParsingTests();
@@ -961,6 +963,203 @@ static void RunReactionVisualizerStateTests()
     ReactionVisualizerState.Reset();
 
     Console.WriteLine("PASS reaction visualizer state");
+}
+
+static void RunActivityCounterTests()
+{
+    ReactionVisualizerState.Reset();
+    Assert(ReactionVisualizerState.ResolveFinishedStatus(cancelled: true, reactionEnabled: true, interrupted: true) ==
+           VisualizerRunStatus.Interrupted, "a run stopped by Restart immediately should be Interrupted, not Stopped");
+    Assert(ReactionVisualizerState.ResolveFinishedStatus(cancelled: false, reactionEnabled: true, interrupted: true) ==
+           VisualizerRunStatus.Completed, "a run that finished is Completed even if a restart was asked for late");
+
+    var done = ReactionVisualizerState.Started(7, "Wave", "/wave");
+    ReactionVisualizerState.Finished(done, cancelled: false, reactionEnabled: true);
+    var stopped = ReactionVisualizerState.Started(7, "Wave", "/wave");
+    ReactionVisualizerState.Finished(stopped, cancelled: true, reactionEnabled: true);
+    var interrupted = ReactionVisualizerState.Started(7, "Wave", "/wave");
+    ReactionVisualizerState.Finished(interrupted, cancelled: true, reactionEnabled: true, interrupted: true);
+    ReactionVisualizerState.Count(7, VisualizerCounter.IgnoredBusy);
+    ReactionVisualizerState.Count(7, VisualizerCounter.IgnoredCooldown, 2);
+    ReactionVisualizerState.Count(7, VisualizerCounter.BlockedLines);
+    ReactionVisualizerState.Count(7, VisualizerCounter.TimedOut);
+    ReactionVisualizerState.Count(7, VisualizerCounter.DiscardedFull, 0);
+    ReactionVisualizerState.Count(7, VisualizerCounter.DiscardedFull, -5);
+    ReactionVisualizerState.Count(8, VisualizerCounter.IgnoredBusy, 4);
+    var counts = ReactionVisualizerState.Counters(7);
+    Assert(counts.Started == 3 && counts.Completed == 1 && counts.Stopped == 1 && counts.Interrupted == 1,
+        $"runs should be counted by how they ended ({counts})");
+    Assert(counts.IgnoredBusy == 1 && counts.IgnoredCooldown == 2 && counts.Ignored == 3,
+        "ignored requests should be split into busy and cooldown");
+    Assert(counts.BlockedLines == 1 && counts.TimedOut == 1, "blocked lines and timeouts should be counted");
+    Assert(counts.DiscardedFull == 0, "zero or negative amounts should not change a counter");
+    Assert(ReactionVisualizerState.Counters(99) == default, "a trigger with no activity should have zero counts");
+    Assert(ReactionVisualizerState.TotalCounters().Ignored == 7, "totals should add up every trigger");
+    Assert(ReactionVisualizerState.Snapshot().Recent[0].Status == VisualizerRunStatus.Interrupted,
+        "Recent should show an interrupted run as Interrupted");
+
+    // Queue latest: the waiting request replaced by a newer one is listed in Recent as Replaced.
+    ReactionVisualizerState.QueuedRun(7, "Wave", "/wave 1", ReactionExecutionPolicy.QueueLatestTrigger);
+    ReactionVisualizerState.QueuedRun(7, "Wave", "/wave 2", ReactionExecutionPolicy.QueueLatestTrigger);
+    var snapshot = ReactionVisualizerState.Snapshot();
+    Assert(snapshot.Queued.Length == 1 && snapshot.Queued[0].Command == "/wave 2", "only the newest request should wait");
+    Assert(snapshot.Recent[0].Status == VisualizerRunStatus.Replaced && snapshot.Recent[0].Command == "/wave 1",
+        "the replaced request should show as Replaced");
+    ReactionVisualizerState.ClearQueued(7);
+    Assert(ReactionVisualizerState.Snapshot().Recent[0].Command == "/wave 1",
+        "a plain Stop should not list the dropped request as Replaced");
+
+    // The scheduler reports Queue latest replacements separately from Queue every overflow.
+    var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var acquiring = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var executed = new List<string>();
+    var scheduler = new BoundedRetriggerScheduler<string>(
+        16,
+        async (_, token) =>
+        {
+            acquiring.TrySetResult();
+            await gate.Task.WaitAsync(token);
+            return new CancellationTokenSource();
+        },
+        (item, lease) =>
+        {
+            lease.Dispose();
+            executed.Add(item);
+            return Task.CompletedTask;
+        },
+        dropped => ReactionVisualizerState.Count(7, VisualizerCounter.DiscardedFull, dropped),
+        reportReplaced: replaced => ReactionVisualizerState.Count(7, VisualizerCounter.Replaced, replaced));
+    var drainer = scheduler.Enqueue(ReactionExecutionPolicy.QueueLatestTrigger, "A", CancellationToken.None)!;
+    acquiring.Task.GetAwaiter().GetResult();
+    scheduler.Enqueue(ReactionExecutionPolicy.QueueLatestTrigger, "B", CancellationToken.None);
+    scheduler.Enqueue(ReactionExecutionPolicy.QueueLatestTrigger, "C", CancellationToken.None);
+    gate.TrySetResult();
+    drainer.GetAwaiter().GetResult();
+    counts = ReactionVisualizerState.Counters(7);
+    Assert(executed.SequenceEqual(["C"]) && counts.Replaced == 2 && counts.DiscardedFull == 0,
+        $"Queue latest replacements should be counted as Replaced, not Discarded ({counts})");
+
+    var neverOpen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var stuck = new BoundedRetriggerScheduler<string>(
+        16,
+        async (_, token) =>
+        {
+            await neverOpen.Task.WaitAsync(token);
+            return new CancellationTokenSource();
+        },
+        (_, lease) =>
+        {
+            lease.Dispose();
+            return Task.CompletedTask;
+        });
+    var stuckDrainer = stuck.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, "A", CancellationToken.None)!;
+    stuck.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, "B", CancellationToken.None);
+    Assert(stuck.Cancel() == 2, "cancelling should report how many waiting requests it dropped");
+    stuckDrainer.GetAwaiter().GetResult();
+    Assert(stuck.Cancel() == 0, "cancelling an empty scheduler drops nothing");
+
+    // Practice runs keep what they would have sent, bounded.
+    var practiceRun = ReactionVisualizerState.Started(9, "Dance", "/dance", practice: true);
+    for (var i = 0; i < 1000; i++)
+        ReactionVisualizerState.WouldSend(practiceRun, $"/echo {i}");
+    var active = ReactionVisualizerState.Snapshot().Active.Single(run => run.Id == practiceRun);
+    Assert(active.Practice && active.WouldSend.Length == 32 && active.WouldSend[0] == "/echo 0",
+        "a practice run should keep at most 32 would-send lines");
+    ReactionVisualizerState.Finished(practiceRun, cancelled: false, reactionEnabled: true);
+    Assert(ReactionVisualizerState.Snapshot().Recent[0] is { Practice: true, WouldSend.Length: 32 },
+        "a finished practice run should keep its would-send lines in Recent");
+    ReactionVisualizerState.WouldSend(practiceRun, "/late");
+    Assert(ReactionVisualizerState.Snapshot().Recent[0].WouldSend.Length == 32, "a finished run takes no more lines");
+
+    ReactionVisualizerState.ResetCounters();
+    Assert(ReactionVisualizerState.TotalCounters() == default, "Clear should reset every counter");
+    Assert(ReactionVisualizerState.Snapshot().Recent.Length > 0, "resetting counters should keep the run history");
+    ReactionVisualizerState.Count(7, VisualizerCounter.Started);
+    ReactionVisualizerState.Reset();
+    Assert(ReactionVisualizerState.TotalCounters() == default && ReactionVisualizerState.Snapshot().Recent.Length == 0,
+        "a full reset (plugin start) should clear counters and history");
+
+    Console.WriteLine("PASS activity counters");
+}
+
+static void RunPracticeAndTestAllTests()
+{
+    var configuration = new Configuration { PracticeMode = true };
+    var saved = DalamudJson.Save(configuration);
+    Assert(!saved.Contains("PracticeMode"), "practice mode should never be saved");
+    Assert(!DalamudJson.Load(saved).PracticeMode, "practice mode should be off after a reload");
+    var hostile = DalamudJson.Load("{\"Version\":" + ConfigVersion.CURRENT + ",\"PracticeMode\":true}");
+    Assert(!hostile.PracticeMode, "a config file can't turn practice mode on");
+
+    static bool Check(Reaction reaction, string command, bool templateWait, out string reason)
+    {
+        var allowed = command != "/logout";
+        reason = allowed ? "allowed" : "never runs";
+        return allowed;
+    }
+    static bool IsEmote(string command) => command is "/wave" or "/dance";
+
+    var wave = new Reaction
+    {
+        Name = "Wave",
+        Enabled = true,
+        MotionOnly = true,
+        UseRegex = true,
+        CustomRx = new Regex(@"^please (\w+)(.*)$", RegexOptions.None, TimeSpan.FromMilliseconds(250)),
+        ReplaceMatch = "/$1\n/echo$2",
+        EnabledChannels = [10],
+        Senders = new SenderFilter { Anyone = false, Friends = true, FreeCompany = false, Party = false, Named = ["Nova Ral'veth@Exodus"] },
+    };
+    var preview = PluginUiLogic.BuildPreview(wave, "please wave hi", IsEmote, Check);
+    Assert(preview.Status == PreviewStatus.Matched && preview.Lines.Count == 2, "a match should list each command line");
+    Assert(preview.Lines[0] is { Command: "/wave motion", Allowed: true, Reason: "Allowed" },
+        $"hide emote text and the reason should show as they would run ({preview.Lines[0]})");
+    Assert(PluginUiLogic.BuildPreview(wave, "hello", IsEmote, Check).Status == PreviewStatus.NoMatch, "no match should say so");
+    Assert(PluginUiLogic.BuildPreview(wave, "  ", IsEmote, Check).Status == PreviewStatus.Empty, "an empty message is not tested");
+    var injected = PluginUiLogic.BuildPreview(wave, "please wave x\n/logout", IsEmote, Check);
+    Assert(injected.Lines.Count == 2 && injected.Lines.All(line => line.Allowed),
+        "a line break in the message must not add a command line");
+    var logout = PluginUiLogic.BuildPreview(wave, "please logout", IsEmote, Check);
+    Assert(!logout.Lines[0].Allowed && logout.Lines[0].Reason == "Never runs", "a blocked line should say why");
+
+    var slow = new Reaction
+    {
+        Name = "Slow",
+        Enabled = true,
+        UseRegex = true,
+        CustomRx = new Regex("^(a+)+$", RegexOptions.None, TimeSpan.FromMilliseconds(50)),
+        ReplaceMatch = "/wave",
+        EnabledChannels = [10],
+        Senders = SenderFilter.AnyoneFilter(),
+    };
+    var timedOut = PluginUiLogic.BuildPreview(slow, new string('a', 5000) + "!", IsEmote, Check);
+    Assert(timedOut.Status == PreviewStatus.Error, "a pattern that times out should show an error, not hang or throw");
+
+    var off = new Reaction { Name = "Off", Enabled = false, Rx = new Regex("please"), EnabledChannels = [10], Senders = SenderFilter.AnyoneFilter() };
+    var party = new Reaction { Name = "Party only", Enabled = true, Rx = new Regex("please"), EnabledChannels = [14], Senders = SenderFilter.AnyoneFilter() };
+    var none = new Reaction { Name = "Other", Enabled = true, Rx = new Regex("goodbye"), EnabledChannels = [10], Senders = SenderFilter.AnyoneFilter() };
+    var noPattern = new Reaction { Name = "Broken", Enabled = true, EnabledChannels = [10], Senders = SenderFilter.AnyoneFilter() };
+    List<Reaction> reactions = [wave, off, party, none, noPattern];
+
+    var stranger = PluginUiLogic.TestSender(0, "");
+    var results = PluginUiLogic.TestAllTriggers(reactions, "please wave", 10, stranger, IsEmote, Check);
+    Assert(results.Select(result => result.Index).SequenceEqual([0, 1, 2]), "only triggers whose pattern matches are listed");
+    Assert(results[0].Outcome == TriggerTestOutcome.SenderNotAllowed, "a stranger can't set off a Friends-only trigger");
+    Assert(results[1].Outcome == TriggerTestOutcome.Off, "a trigger that's off says so");
+    Assert(results[2].Outcome == TriggerTestOutcome.NotOnChannel, "a trigger on another channel says so");
+
+    var friend = PluginUiLogic.TestSender(1, "");
+    Assert(PluginUiLogic.TestAllTriggers(reactions, "please wave", 10, friend, IsEmote, Check)[0].Outcome == TriggerTestOutcome.Fires,
+        "a friend sets off the Friends trigger");
+    var named = PluginUiLogic.TestSender(0, " nova ral'veth @ exodus ");
+    Assert(named is { Name: "nova ral'veth", World: "exodus", IsFriend: false } &&
+           PluginUiLogic.TestAllTriggers(reactions, "please wave", 10, named, IsEmote, Check)[0].Outcome == TriggerTestOutcome.Fires,
+        "a named player (any case) sets off a trigger that lists them");
+    Assert(PluginUiLogic.TestSender(3, null) is { IsParty: true, IsFriend: false, IsFreeCompany: false, Name: "" },
+        "sender kinds map to one group each");
+    Assert(PluginUiLogic.TestAllTriggers(reactions, "", 10, stranger, IsEmote, Check).Count == 0, "an empty message tests nothing");
+
+    Console.WriteLine("PASS practice mode and test all triggers");
 }
 
 static void RunConfigurationUpgradeTransactionTests()

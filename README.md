@@ -69,7 +69,9 @@ PuppetMasterKK watches the chat channels you pick. When someone you trust says t
 
 ### Seeing what's going on
 
-- **Activity:** what's running, what's waiting, what finished and how long it took, with Stop buttons.
+- **Activity:** what's running, what's waiting, what finished and how long it took, with Stop buttons, plus counts of ignored, replaced and discarded requests.
+- **Practice mode:** triggers match, wait and queue as usual but send nothing; Activity shows what they would have sent.
+- **Test all triggers:** type a message, pick a channel and a sender, and see every trigger it would set off.
 - **Message log:** capture chat to find a channel's number, add custom channels, or turn a message into a trigger with one click.
 - **Notifications** for trigger progress and ignored requests, per trigger or globally.
 
@@ -87,6 +89,7 @@ PuppetMasterKK watches the chat channels you pick. When someone you trust says t
 /pmkk on <TriggerName>    turn triggers with that name on
 /pmkk off <TriggerName>   turn triggers with that name off
 /pmkk viz                 open Activity
+/pmkk practice on|off     practice mode: triggers run but send nothing
 /pmkk logging on|off|clear|save
 ```
 
@@ -102,8 +105,6 @@ These are ideas, not promises. Plans may change as they are tested.
 
 - Group selected triggers so they take turns instead of overlapping.
 - Export a trigger as a share code that another user can review before enabling.
-- Preview matches and waiting activity without sending commands to the game.
-- Show clearer counts for ignored, replaced, or discarded requests.
 - Add different behavior for each person sending requests.
 - Let triggers choose from approved alternatives or run a final action when their work is done.
 

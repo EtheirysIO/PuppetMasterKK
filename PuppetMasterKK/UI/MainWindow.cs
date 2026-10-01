@@ -147,7 +147,10 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
 
     protected override IReadOnlyList<StatusLine> GetStatusLines()
     {
-        var lines = new List<StatusLine>(3);
+        var lines = new List<StatusLine>(4);
+        if (Config.PracticeMode)
+            lines.Add(new StatusLine("Practice mode: nothing is sent", Theme.Warning, FontAwesomeIcon.Flask,
+                                     "Triggers run without sending anything. Turn it off on the Activity page or with /pmkk practice off."));
         if (Config.EmoteReplies.Enabled && Service.plugin?.emoteReplies is { Available: false } replies)
             lines.Add(new StatusLine("Emote replies unavailable", Theme.Warning, Tooltip: replies.UnavailableReason));
         if (Config.DebugLogTypes)

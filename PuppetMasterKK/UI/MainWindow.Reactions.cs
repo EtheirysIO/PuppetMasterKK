@@ -32,14 +32,9 @@ internal sealed partial class MainWindow
 
     // The test preview is worked out when something it depends on changes, not every frame (a slow pattern would
     // otherwise run on the game thread 60 times a second).
-    private readonly List<PreviewLine> preview = [];
+    private ReactionPreview preview = ReactionPreview.Empty;
     private Reaction? previewFor;
     private bool previewDirty = true;
-    private string previewMatched = string.Empty;
-    private string? previewError;
-    private bool previewMatchedAny;
-
-    private readonly record struct PreviewLine(string Command, bool Allowed, string Reason);
 
     private Reaction? SelectedReaction
         => selected >= 0 && selected < Config.Reactions.Count ? Config.Reactions[selected] : null;
@@ -523,28 +518,7 @@ internal sealed partial class MainWindow
                 return;
             }
             Gap(2f);
-            if (previewError != null)
-            {
-                W.Chip("Can't build commands", Theme.Negative, status: true);
-                W.TextWrapped(previewError, Theme.Dim);
-                return;
-            }
-            if (!previewMatchedAny)
-            {
-                W.Chip("No match", Theme.Warning);
-                return;
-            }
-
-            foreach (var line in preview)
-            {
-                W.Chip(line.Allowed ? "Runs" : "Blocked", line.Allowed ? Theme.Positive : Theme.Negative, status: true);
-                if (ImGui.IsItemHovered())
-                    W.Tooltip(line.Reason);
-                ImGui.SameLine();
-                ImGui.TextUnformatted(line.Command);
-            }
-            if (reaction.UseRegex)
-                Hint($"Matched: {previewMatched}");
+            DrawPreview(preview, reaction.UseRegex);
         }
     }
 
@@ -553,48 +527,37 @@ internal sealed partial class MainWindow
         previewFor = reaction;
         previewDirty = false;
         previewBuiltAt = Environment.TickCount64;
-        preview.Clear();
-        previewError = null;
-        previewMatched = string.Empty;
-        previewMatchedAny = false;
-        if (string.IsNullOrWhiteSpace(reaction.TestInput))
-            return;
+        preview = PreviewFor(reaction, reaction.TestInput);
+    }
 
-        var status = ReactionCommandMatcher.TryGenerateCommand(
-            ReactionCommandMatcher.SelectPattern(reaction),
-            ReactionCommandMatcher.SanitizeIncoming(reaction.TestInput),
-            ReactionCommandMatcher.SelectReplacement(reaction),
-            out var command,
-            out var matched,
-            out var error);
-        if (status == ReactionMatchStatus.InvalidReplacement)
-        {
-            previewError = error ?? "Couldn't build commands from this pattern.";
-            return;
-        }
-        if (status == ReactionMatchStatus.TimedOut)
-        {
-            previewError = "The pattern took too long on this message.";
-            return;
-        }
-        if (status != ReactionMatchStatus.Success)
-            return;
+    private static ReactionPreview PreviewFor(Reaction reaction, string message)
+        => PluginUiLogic.BuildPreview(reaction, message, Service.Commands.IsEmote, Service.IsCommandAllowed);
 
-        previewMatchedAny = true;
-        previewMatched = matched;
-        var lines = ReactionCommandMatcher.SplitLines(command);
-        var waitLines = ReactionCommandMatcher.TemplateWaitLines(ReactionCommandMatcher.SelectReplacement(reaction));
-        for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
+    /// <summary>A preview's lines with Runs / Blocked chips (hover for why), or why there are none.</summary>
+    private static void DrawPreview(ReactionPreview result, bool showMatched)
+    {
+        if (result.Status == PreviewStatus.Error)
         {
-            var parsed = ReactionCommandMatcher.FormatCommand(lines[lineIndex]);
-            if (string.IsNullOrWhiteSpace(parsed.Main))
-                continue;
-            if (reaction.MotionOnly && Service.Commands.IsEmote(parsed.Main))
-                parsed.Args = "motion";
-            var allowed = Service.IsCommandAllowed(reaction, parsed.Main,
-                                                   ReactionCommandMatcher.IsTemplateWait(waitLines, lineIndex), out var reason);
-            preview.Add(new PreviewLine(parsed.ToString(), allowed, Capitalize(reason)));
+            W.Chip("Can't build commands", Theme.Negative, status: true);
+            W.TextWrapped(result.Error ?? string.Empty, Theme.Dim);
+            return;
         }
+        if (result.Status != PreviewStatus.Matched)
+        {
+            W.Chip("No match", Theme.Warning);
+            return;
+        }
+
+        foreach (var line in result.Lines)
+        {
+            W.Chip(line.Allowed ? "Runs" : "Blocked", line.Allowed ? Theme.Positive : Theme.Negative, status: true);
+            if (ImGui.IsItemHovered())
+                W.Tooltip(line.Reason);
+            ImGui.SameLine();
+            ImGui.TextUnformatted(line.Command);
+        }
+        if (showMatched)
+            Hint($"Matched: {result.Matched}");
     }
 
     /// <summary>Puts the next item (this wide) on the same line if it fits in the card, else on the next line.</summary>
@@ -604,8 +567,6 @@ internal sealed partial class MainWindow
         if (W.Avail() < nextWidth)
             ImGui.NewLine();
     }
-
-    private static string Capitalize(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
 
     private void DrawTimingCard(Reaction reaction)
     {

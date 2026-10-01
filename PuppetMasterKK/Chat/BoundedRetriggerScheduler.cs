@@ -9,7 +9,8 @@ internal sealed class BoundedRetriggerScheduler<T>(
     Func<T, CancellationToken, Task<IDisposable>> acquire,
     Func<T, IDisposable, Task> execute,
     Action<int>? reportDropped = null,
-    Action<Exception, int>? reportFailure = null)
+    Action<Exception, int>? reportFailure = null,
+    Action<int>? reportReplaced = null)
 {
     private readonly object sync = new();
     private readonly BoundedRetriggerQueue<T> queue = new(capacity);
@@ -42,8 +43,14 @@ internal sealed class BoundedRetriggerScheduler<T>(
         lock (sync)
         {
             var dropped = queue.Enqueue(policy, item);
-            if (policy == ReactionExecutionPolicy.QueueEveryTrigger && dropped > 0)
-                reportDropped?.Invoke(dropped);
+            // Queue every drops the oldest when full; Queue latest and Restart replace what was waiting.
+            if (dropped > 0)
+            {
+                if (policy == ReactionExecutionPolicy.QueueEveryTrigger)
+                    reportDropped?.Invoke(dropped);
+                else
+                    reportReplaced?.Invoke(dropped);
+            }
             if (policy == ReactionExecutionPolicy.IgnoreWhileRunning || isDraining)
                 return null;
 
@@ -55,11 +62,14 @@ internal sealed class BoundedRetriggerScheduler<T>(
         }
     }
 
-    public void Cancel()
+    /// <summary>Drops everything waiting and stops the drainer. Returns how many waiting items were dropped.</summary>
+    public int Cancel()
     {
         CancellationTokenSource? cancellation;
+        int cleared;
         lock (sync)
         {
+            cleared = queue.Count;
             queue.Clear();
             isDraining = false;
             generation++;
@@ -68,10 +78,11 @@ internal sealed class BoundedRetriggerScheduler<T>(
         }
 
         if (cancellation == null)
-            return;
+            return cleared;
         try { cancellation.Cancel(); }
         catch (ObjectDisposedException) { }
         cancellation.Dispose();
+        return cleared;
     }
 
     private async Task DrainAsync(long drainerGeneration, CancellationToken drainerToken)

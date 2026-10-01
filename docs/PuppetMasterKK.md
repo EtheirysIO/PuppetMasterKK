@@ -24,7 +24,7 @@ The sidebar picks the page:
 - **Emote replies** — answer emotes aimed at you.
 - **Follow mode** — follow or come to whoever asks (or the player they name), and stop everything on request.
 - **Mimic** — copy a player's emotes when asked.
-- **Activity** — what's running, waiting and recently finished.
+- **Activity** — what's running, waiting and recently finished, counts, Practice mode and Test all triggers.
 - **Message log** — capture chat to find channels and build triggers.
 - **Settings** — general options, defaults for new triggers, custom channels and appearance.
 
@@ -91,7 +91,7 @@ In incoming messages, write targets with square brackets. PuppetMasterKK turns `
 - **Blocked** — the command won't run; hover it to see why.
 - **No match** — the message doesn't match the trigger.
 
-The test runs exactly the matching that live chat uses.
+The test runs exactly the matching that live chat uses. To try a message against every trigger at once, or to let triggers run without sending anything, see [Activity](#activity).
 
 <details>
 <summary>Advanced matching with regular expressions</summary>
@@ -300,6 +300,31 @@ Open **Activity** from the sidebar, or run:
 
 It shows what's running (with **Stop**), what's waiting, what recently finished and how long it took, and the state of every trigger. Select a trigger's name to open it in the editor.
 
+### Counts
+
+The counts at the top cover this session; hover one for details.
+
+- **Ignored** — requests dropped because the trigger was busy (with **Ignore**) or cooling down.
+- **Replaced** — waiting requests dropped for a newer one (**Queue latest trigger**, **Restart immediately**).
+- **Discarded** — dropped under load: messages that arrived too fast, and requests over the 16 a trigger can queue.
+
+**All triggers** has an **Ignored** column per trigger; hover it for everything else (started, done, stopped, interrupted, replaced, discarded, blocked lines, pattern timeouts). Under **Recently finished**, **Interrupted** means a newer request restarted it and **Replaced** means it never ran because a newer request took its place; **Stopped** means you (or a change to the trigger) stopped it. **Clear** in the message log, or `/pmkk logging clear`, resets the counts.
+
+### Practice mode
+
+Turn on **Practice mode** at the top of Activity, or run:
+
+```text
+/pmkk practice on
+/pmkk practice off
+```
+
+Triggers match, wait, queue and check their commands exactly as usual, but nothing is sent: runs show a **Practice** tag, and hovering one lists what it would have sent. Blocked lines are still blocked. Follow mode, Mimic and Emote replies keep working for real. Turning it on or off stops every trigger, it's off every time the plugin starts, and the sidebar says when it's on.
+
+### Test all triggers
+
+Type a message, pick a channel and who sends it (a stranger, a friend, a Free Company or party member, and optionally a `Name@World`). Every trigger whose pattern matches is listed with what it would run, and whether it would fire: **Fires**, **Off**, **Not listening here** or **Not from this sender**. Nothing is sent.
+
 ## Message log
 
 When a trigger mysteriously refuses to work, the message log is usually the best place to look.
@@ -307,7 +332,7 @@ When a trigger mysteriously refuses to work, the message log is usually the best
 - Turn on **Capture messages** to start logging. It's off every time the plugin starts.
 - **Color by channel** and **Follow new messages** only affect this session.
 - **+** makes a new trigger from a message; **#** adds an unknown channel.
-- **Save to file** writes the log to a text file; **Clear** empties it.
+- **Save to file** writes the log to a text file; **Clear** empties it and resets the Activity counts.
 
 Commands:
 
@@ -321,7 +346,7 @@ Commands:
 <details>
 <summary>Discarded messages</summary>
 
-During extreme message spam, PuppetMasterKK may discard older messages that are still waiting to be matched, and requests beyond the 16 a trigger can queue. The message log and Activity show how many were discarded.
+During extreme message spam, PuppetMasterKK may discard older messages that are still waiting to be matched, and requests beyond the 16 a trigger can queue. The message log and Activity show how many were discarded. **Clear** resets these and the other Activity counts.
 
 </details>
 

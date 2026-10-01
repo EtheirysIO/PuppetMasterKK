@@ -15,8 +15,27 @@ internal enum ReactionUiStatus
     Ready,
 }
 
+internal readonly record struct PreviewLine(string Command, bool Allowed, string Reason);
+
+internal enum PreviewStatus { Empty, NoMatch, Matched, Error }
+
+/// <summary>What a message would run for one trigger ("Try it" and "Test all triggers").</summary>
+internal sealed record ReactionPreview(PreviewStatus Status, string Matched, string? Error, IReadOnlyList<PreviewLine> Lines)
+{
+    public static readonly ReactionPreview Empty = new(PreviewStatus.Empty, string.Empty, null, []);
+    public static readonly ReactionPreview NoMatch = new(PreviewStatus.NoMatch, string.Empty, null, []);
+}
+
+/// <summary>The permission check for one line of a trigger's commands (Service.IsCommandAllowed in the plugin).</summary>
+internal delegate bool CommandCheck(Reaction reaction, string command, bool templateWait, out string reason);
+
+internal enum TriggerTestOutcome { Fires, Off, NotOnChannel, SenderNotAllowed }
+
+internal sealed record TriggerTestResult(int Index, TriggerTestOutcome Outcome, ReactionPreview Preview);
+
 internal static class PluginUiLogic
 {
+    public static readonly string[] TestSenderLabels = ["A stranger", "A friend", "Free Company member", "Party member"];
     public static readonly string[] NotificationSettingLabels =
         ["Default", "Show", "Hide"];
 
@@ -312,6 +331,80 @@ internal static class PluginUiLogic
             selectedChannels.RemoveAll(id => id == chatTypeId);
         }
     }
+
+    /// <summary>
+    /// Matches <paramref name="message"/> the way live chat does and lists each command line with whether it may run.
+    /// Nothing is sent.
+    /// </summary>
+    public static ReactionPreview BuildPreview(Reaction reaction, string message, Func<string, bool> isEmote, CommandCheck check)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return ReactionPreview.Empty;
+        var replacement = ReactionCommandMatcher.SelectReplacement(reaction);
+        var status = ReactionCommandMatcher.TryGenerateCommand(
+            ReactionCommandMatcher.SelectPattern(reaction),
+            ReactionCommandMatcher.SanitizeIncoming(message),
+            replacement,
+            out var command,
+            out var matched,
+            out var error);
+        if (status == ReactionMatchStatus.InvalidReplacement)
+            return new(PreviewStatus.Error, string.Empty, error ?? "Couldn't build commands from this pattern.", []);
+        if (status == ReactionMatchStatus.TimedOut)
+            return new(PreviewStatus.Error, string.Empty, "The pattern took too long on this message.", []);
+        if (status != ReactionMatchStatus.Success)
+            return ReactionPreview.NoMatch;
+
+        var lines = new List<PreviewLine>();
+        var split = ReactionCommandMatcher.SplitLines(command);
+        var waitLines = ReactionCommandMatcher.TemplateWaitLines(replacement);
+        for (var lineIndex = 0; lineIndex < split.Length; lineIndex++)
+        {
+            var parsed = ReactionCommandMatcher.FormatCommand(split[lineIndex]);
+            if (string.IsNullOrWhiteSpace(parsed.Main))
+                continue;
+            if (reaction.MotionOnly && isEmote(parsed.Main))
+                parsed.Args = "motion";
+            var allowed = check(reaction, parsed.Main, ReactionCommandMatcher.IsTemplateWait(waitLines, lineIndex), out var reason);
+            lines.Add(new PreviewLine(parsed.ToString(), allowed, Capitalize(reason)));
+        }
+        return new(PreviewStatus.Matched, matched, null, lines);
+    }
+
+    /// <summary>A pretend sender for "Test all triggers": a kind from <see cref="TestSenderLabels"/>, plus an optional Name@World.</summary>
+    internal static SenderInfo TestSender(int kind, string? nameAndWorld)
+    {
+        var text = nameAndWorld?.Trim() ?? string.Empty;
+        var at = text.IndexOf('@');
+        var name = (at < 0 ? text : text[..at]).Trim();
+        var world = at < 0 ? string.Empty : text[(at + 1)..].Trim();
+        return new SenderInfo(name, world, false, kind == 1, kind == 2, kind == 3);
+    }
+
+    /// <summary>
+    /// Every trigger whose pattern matches <paramref name="message"/>, with what it would run and whether it would fire
+    /// for this channel and sender. Triggers that don't match are left out. Nothing is sent.
+    /// </summary>
+    internal static List<TriggerTestResult> TestAllTriggers(IReadOnlyList<Reaction> reactions, string message, int channel,
+        in SenderInfo sender, Func<string, bool> isEmote, CommandCheck check)
+    {
+        var results = new List<TriggerTestResult>();
+        for (var index = 0; index < reactions.Count; index++)
+        {
+            var reaction = reactions[index];
+            var preview = BuildPreview(reaction, message, isEmote, check);
+            if (preview.Status is PreviewStatus.Empty or PreviewStatus.NoMatch)
+                continue;
+            var outcome = !reaction.Enabled ? TriggerTestOutcome.Off
+                : reaction.EnabledChannels?.Contains(channel) != true ? TriggerTestOutcome.NotOnChannel
+                : reaction.Senders != null && !reaction.Senders.Allows(sender) ? TriggerTestOutcome.SenderNotAllowed
+                : TriggerTestOutcome.Fires;
+            results.Add(new TriggerTestResult(index, outcome, preview));
+        }
+        return results;
+    }
+
+    public static string Capitalize(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
 
     public static string? ValidateCustomChannelId(
         ChannelSetting channel,

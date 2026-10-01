@@ -19,7 +19,7 @@ namespace PuppetMasterKK
     public class ChatHandler
     {
         private static readonly ReactionExecutionGate ExecutionGate = new();
-        private static readonly ConcurrentDictionary<Reaction, CancellationTokenSource> ActiveReactionCancellations =
+        private static readonly ConcurrentDictionary<Reaction, ActiveRun> ActiveReactionCancellations =
             new(ReferenceEqualityComparer.Instance);
         private static readonly ConcurrentDictionary<IActiveNotification, byte> ActiveNotifications = new();
         private static ConditionalWeakTable<Reaction, SuppressionNotificationState> suppressionNotifications = new();
@@ -50,7 +50,8 @@ namespace PuppetMasterKK
             string Replacement,
             bool[] TemplateWaitLines,
             ProtectionSettings Protections,
-            bool NoProtections);
+            bool NoProtections,
+            bool Practice);
 
         private sealed record ChatEnvelope(string Message, List<ReactionSnapshot> Reactions);
         private sealed record PendingRetrigger(
@@ -68,6 +69,21 @@ namespace PuppetMasterKK
         {
             public long Generation;
             public long VisualizerId = Interlocked.Increment(ref nextVisualizerReactionId);
+        }
+
+        // A running trigger's token source, and whether a newer request (Restart immediately) is what stopped it.
+        private sealed class ActiveRun(CancellationTokenSource cancellation)
+        {
+            public readonly CancellationTokenSource Cancellation = cancellation;
+            public int Interrupted;
+
+            public void Cancel(bool interrupted = false)
+            {
+                if (interrupted)
+                    Volatile.Write(ref Interrupted, 1);
+                try { Cancellation.Cancel(); }
+                catch (ObjectDisposedException) { }
+            }
         }
 
         private sealed class ErrorNotificationState
@@ -103,11 +119,8 @@ namespace PuppetMasterKK
             Volatile.Write(ref shuttingDown, 1);
             pluginLifetime.Cancel();
             dispatcher.Writer.TryComplete();
-            foreach (var cancellation in ActiveReactionCancellations.Values)
-            {
-                try { cancellation.Cancel(); }
-                catch (ObjectDisposedException) { }
-            }
+            foreach (var run in ActiveReactionCancellations.Values)
+                run.Cancel();
             foreach (var notification in ActiveNotifications.Keys)
             {
                 if (notification.DismissReason == null)
@@ -138,21 +151,30 @@ namespace PuppetMasterKK
         {
             var control = reactionControls.GetValue(reaction, static _ => new ReactionControlState());
             Interlocked.Increment(ref control.Generation);
-            if (cancelActive && ActiveReactionCancellations.TryGetValue(reaction, out var cancellation))
-            {
-                try { cancellation.Cancel(); }
-                catch (ObjectDisposedException) { }
-            }
+            if (cancelActive && ActiveReactionCancellations.TryGetValue(reaction, out var run))
+                run.Cancel();
             CancelQueuedRetriggers(reaction);
         }
 
-        private static void CancelQueuedRetriggers(Reaction reaction)
+        // Drops a trigger's waiting requests; replaced: a newer request took their place (counted and shown as such).
+        private static void CancelQueuedRetriggers(Reaction reaction, bool replaced = false)
         {
             if (reactionControls.TryGetValue(reaction, out var control))
-                ReactionVisualizerState.ClearQueued(control.VisualizerId);
+                ReactionVisualizerState.ClearQueued(control.VisualizerId, replaced);
             if (!retriggerQueues.TryGetValue(reaction, out var state))
                 return;
-            state.Cancel();
+            var cleared = state.Cancel();
+            if (replaced && control != null)
+                ReactionVisualizerState.Count(control.VisualizerId, VisualizerCounter.Replaced, cleared);
+        }
+
+        /// <summary>Practice mode on or off (this session). Everything running or waiting stops either way.</summary>
+        public static void SetPracticeMode(Configuration configuration, bool on)
+        {
+            if (configuration.PracticeMode == on)
+                return;
+            configuration.PracticeMode = on;
+            CancelAll(configuration);
         }
 
         public static long DroppedMessageCount => Interlocked.Read(ref droppedMessageCount);
@@ -167,6 +189,7 @@ namespace PuppetMasterKK
         {
             Interlocked.Exchange(ref droppedMessageCount, 0);
             Interlocked.Exchange(ref droppedRetriggerCount, 0);
+            ReactionVisualizerState.ResetCounters();
         }
 
         private static Channel<ChatEnvelope> CreateDispatcher()
@@ -202,7 +225,8 @@ namespace PuppetMasterKK
         private static ReactionSnapshot? CreateSnapshot(
             Reaction reaction,
             bool showNotifications,
-            bool showSuppressionNotifications)
+            bool showSuppressionNotifications,
+            bool practice)
         {
             var pattern = ReactionCommandMatcher.SelectPattern(reaction);
             if (pattern == null)
@@ -227,7 +251,8 @@ namespace PuppetMasterKK
                 replacement,
                 ReactionCommandMatcher.TemplateWaitLines(replacement),
                 (reaction.Protections ?? new ProtectionSettings()).Clone(),
-                reaction.NoProtections);
+                reaction.NoProtections,
+                practice);
         }
 
         // Fire-and-forget work: a failure is logged instead of going unobserved.
@@ -247,6 +272,7 @@ namespace PuppetMasterKK
         private static async Task RunMacroAsync(
             string[] lines,
             ReactionSnapshot reaction,
+            long visualizerRunId,
             CancellationTokenSource cancellation,
             CancellationToken pluginToken)
         {
@@ -328,6 +354,7 @@ namespace PuppetMasterKK
                                                              out var permissionReason))
                                     return true;
                                 Service.PluginLog.Debug("{Reaction}: {Command} blocked: {Reason}", reaction.Name, textCommand.Main, permissionReason);
+                                ReactionVisualizerState.Count(reaction.Control.VisualizerId, VisualizerCounter.BlockedLines);
                                 return false;
                             });
 
@@ -341,12 +368,19 @@ namespace PuppetMasterKK
                                     await Task.Delay(wait > TimeSpan.FromMilliseconds(10) ? wait : TimeSpan.FromMilliseconds(10), cancellation.Token);
                                 }
 
-                                await Service.Framework.RunOnFrameworkThread(() =>
+                                // Practice mode: everything up to here ran as usual (waits, checks, the rate limit); only
+                                // the send is skipped.
+                                if (reaction.Practice)
+                                {
+                                    if (!cancellation.IsCancellationRequested)
+                                        ReactionVisualizerState.WouldSend(visualizerRunId, textCommand.ToString());
+                                }
+                                else await Service.Framework.RunOnFrameworkThread(() =>
                                 {
                                     if (cancellation.IsCancellationRequested)
                                         return;
                                     try
-                                {
+                                    {
                                         GameChat.Send(textCommand.ToString());
                                     }
                                     catch (Exception ex)
@@ -589,6 +623,8 @@ namespace PuppetMasterKK
                 reaction.Replacement,
                 out var command,
                 out var matchError);
+            if (matchStatus == ReactionMatchStatus.TimedOut)
+                ReactionVisualizerState.Count(reaction.Control.VisualizerId, VisualizerCounter.TimedOut);
             if (matchStatus == ReactionMatchStatus.NoMatch || matchStatus == ReactionMatchStatus.TimedOut)
                 return;
             if (matchStatus == ReactionMatchStatus.InvalidReplacement)
@@ -600,12 +636,9 @@ namespace PuppetMasterKK
             var restartImmediately = PluginUiLogic.RestartsActiveRun(reaction.ExecutionPolicy);
             if (restartImmediately)
             {
-                CancelQueuedRetriggers(reaction.Source);
-                if (ActiveReactionCancellations.TryGetValue(reaction.Source, out var activeCancellation))
-                {
-                    try { activeCancellation.Cancel(); }
-                    catch (ObjectDisposedException) { }
-                }
+                CancelQueuedRetriggers(reaction.Source, replaced: true);
+                if (ActiveReactionCancellations.TryGetValue(reaction.Source, out var activeRun))
+                    activeRun.Cancel(interrupted: true);
             }
 
             // While queued triggers are draining, a new trigger goes behind them, never ahead.
@@ -616,7 +649,7 @@ namespace PuppetMasterKK
                 if (reaction.ExecutionPolicy != ReactionExecutionPolicy.IgnoreWhileRunning)
                     QueueRetrigger(reaction, command, pluginToken);
                 else
-                    await NotifySuppressionAsync(reaction, ReactionRejectionReason.Busy, pluginToken);
+                    await IgnoreAsync(reaction, ReactionRejectionReason.Busy, pluginToken);
                 return;
             }
 
@@ -634,11 +667,18 @@ namespace PuppetMasterKK
                     QueueRetrigger(reaction, command, pluginToken);
                     return;
                 }
-                await NotifySuppressionAsync(reaction, rejectionReason, pluginToken);
+                await IgnoreAsync(reaction, rejectionReason, pluginToken);
                 return;
             }
 
             await RunAcceptedCommandAsync(reaction, command, lease!, pluginToken, fromQueue: false);
+        }
+
+        private static Task IgnoreAsync(ReactionSnapshot reaction, ReactionRejectionReason reason, CancellationToken pluginToken)
+        {
+            ReactionVisualizerState.Count(reaction.Control.VisualizerId,
+                reason == ReactionRejectionReason.Cooldown ? VisualizerCounter.IgnoredCooldown : VisualizerCounter.IgnoredBusy);
+            return NotifySuppressionAsync(reaction, reason, pluginToken);
         }
 
         private static async Task RunAcceptedCommandAsync(
@@ -657,10 +697,12 @@ namespace PuppetMasterKK
                 var visualizerRunId = ReactionVisualizerState.Started(
                     reaction.Control.VisualizerId,
                     reaction.Name,
-                    command);
+                    command,
+                    reaction.Practice);
                 var lines = ReactionCommandMatcher.SplitLines(command);
                 using var runCancellation = CancellationTokenSource.CreateLinkedTokenSource(pluginToken);
-                ActiveReactionCancellations[reaction.Source] = runCancellation;
+                var activeRun = new ActiveRun(runCancellation);
+                ActiveReactionCancellations[reaction.Source] = activeRun;
                 try
                 {
                     if (Volatile.Read(ref reaction.Control.Generation) != reaction.Generation)
@@ -668,7 +710,7 @@ namespace PuppetMasterKK
                         runCancellation.Cancel();
                         return;
                     }
-                    await RunMacroAsync(lines, reaction, runCancellation, pluginToken);
+                    await RunMacroAsync(lines, reaction, visualizerRunId, runCancellation, pluginToken);
                 }
                 finally
                 {
@@ -676,7 +718,8 @@ namespace PuppetMasterKK
                     ReactionVisualizerState.Finished(
                         visualizerRunId,
                         runCancellation.IsCancellationRequested,
-                        reaction.Source.Enabled);
+                        reaction.Source.Enabled,
+                        Volatile.Read(ref activeRun.Interrupted) != 0);
                 }
             }
         }
@@ -686,6 +729,7 @@ namespace PuppetMasterKK
             string command,
             CancellationToken pluginToken)
         {
+            var visualizerId = reaction.Control.VisualizerId;
             var scheduler = retriggerQueues.GetValue(reaction.Source, source =>
                 new BoundedRetriggerScheduler<PendingRetrigger>(
                     16,
@@ -702,18 +746,26 @@ namespace PuppetMasterKK
                         lease,
                         pending.PluginToken,
                         fromQueue: true),
-                    dropped => Interlocked.Add(ref droppedRetriggerCount, dropped),
+                    dropped =>
+                    {
+                        Interlocked.Add(ref droppedRetriggerCount, dropped);
+                        ReactionVisualizerState.Count(visualizerId, VisualizerCounter.DiscardedFull, dropped);
+                    },
                     (exception, discarded) =>
                     {
                         if (discarded > 0)
+                        {
                             Interlocked.Add(ref droppedRetriggerCount, discarded);
+                            ReactionVisualizerState.Count(visualizerId, VisualizerCounter.DiscardedFull, discarded);
+                        }
                         Service.PluginLog.Error(
                             exception,
                             "Retrigger scheduler failed for {ReactionName}; discarded {DiscardedCount} pending trigger(s).",
                             source.Name,
                             discarded);
                         Track(NotifySchedulerFailureAsync(source, exception.Message, discarded, pluginToken));
-                    }));
+                    },
+                    replaced => ReactionVisualizerState.Count(visualizerId, VisualizerCounter.Replaced, replaced)));
             var drainer = scheduler.Enqueue(
                 reaction.ExecutionPolicy,
                 new PendingRetrigger(reaction, command, pluginToken),
@@ -782,7 +834,8 @@ namespace PuppetMasterKK
                 var snapshot = CreateSnapshot(
                     reaction,
                     configuration.ShowReactionNotifications,
-                    configuration.ShowSuppressedReactionNotifications);
+                    configuration.ShowSuppressedReactionNotifications,
+                    configuration.PracticeMode);
                 if (snapshot != null)
                     (snapshots ??= []).Add(snapshot);
             }
