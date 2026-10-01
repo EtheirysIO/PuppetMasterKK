@@ -15,6 +15,8 @@ internal enum CommandKind
     // covered by "Any game command", always allowed one by one.
     Sensitive,
     Plugin,
+    // /follow: Follow mode's alone. Triggers never send it, not even without protections.
+    FollowOnly,
     // Never runs, whatever the reaction allows (logout, shutdown, PuppetMasterKK's and Dalamud's own commands).
     Blocked,
 }
@@ -45,14 +47,16 @@ internal sealed class CommandCatalog
 
     // English names of the commands that never run. The catalog maps them to the client's own names (the game
     // knows each command by its English name as well), so the block holds on every client language.
+    private static readonly string[] AlwaysBlockedForms = ["/logout", "/shutdown", "/puppetmaster", "/puppetmasterkk", "/pmkk"];
     // /follow belongs to Follow mode (with its own sender, channel and target rules): triggers never send it.
-    private static readonly string[] AlwaysBlockedForms = ["/logout", "/shutdown", "/puppetmaster", "/puppetmasterkk", "/pmkk", "/follow"];
+    public const string FollowCommand = "/follow";
 
     private readonly Dictionary<string, string> canonical = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> emotes = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> chat = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> sensitive = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> blocked = new(StringComparer.OrdinalIgnoreCase);
+    private string follow = FollowCommand;
 
     public static CommandCatalog Empty { get; } = new([], []);
 
@@ -72,6 +76,7 @@ internal sealed class CommandCatalog
             chat.Add(Canonicalize(form));
         foreach (var form in AlwaysBlockedForms)
             blocked.Add(Canonicalize(form));
+        follow = Canonicalize(FollowCommand);
         foreach (var form in SensitiveCommandForms)
             sensitive.Add(Canonicalize(form));
     }
@@ -118,6 +123,8 @@ internal sealed class CommandCatalog
     public CommandKind Classify(string command, Func<string, bool>? isPluginCommand = null)
     {
         var main = Canonicalize(command);
+        if (main.Equals(follow, StringComparison.OrdinalIgnoreCase) || Normalize(command) == FollowCommand)
+            return CommandKind.FollowOnly;
         if (IsAlwaysBlocked(main) || CommandPolicy.IsAlwaysBlocked(Normalize(command)))
             return CommandKind.Blocked;
         if (emotes.Contains(main))
@@ -164,16 +171,28 @@ internal static class CommandPolicy
         IReadOnlySet<string> whitelist,
         IReadOnlySet<string> blacklist,
         bool allowAllGameCommands,
-        out string reason)
+        out string reason,
+        bool noProtections = false)
     {
-        if (kind == CommandKind.Blocked || IsAlwaysBlocked(canonicalCommand))
+        if (kind == CommandKind.FollowOnly || canonicalCommand == CommandCatalog.FollowCommand)
         {
-            reason = canonicalCommand == "/follow" ? "only Follow mode can follow" : "always blocked";
+            reason = "only Follow mode can follow";
             return false;
         }
         if (blacklist.Contains(canonicalCommand))
         {
             reason = "blocked by this trigger";
+            return false;
+        }
+        // A trigger with no protections runs everything except its own Blocked list and /follow.
+        if (noProtections)
+        {
+            reason = "this trigger has no protections";
+            return true;
+        }
+        if (kind == CommandKind.Blocked || IsAlwaysBlocked(canonicalCommand))
+        {
+            reason = "always blocked";
             return false;
         }
         if (whitelist.Contains(canonicalCommand))
@@ -209,7 +228,8 @@ internal static class CommandPolicy
         bool fromReactionCommands,
         IReadOnlySet<string> whitelist,
         IReadOnlySet<string> blacklist,
-        out string reason)
+        out string reason,
+        bool noProtections = false)
     {
         var localized = catalog.Canonicalize(WaitCommand);
         if (blacklist.Contains(WaitCommand) || blacklist.Contains(localized))
@@ -217,7 +237,7 @@ internal static class CommandPolicy
             reason = "blocked by this trigger";
             return false;
         }
-        if (fromReactionCommands || whitelist.Contains(WaitCommand) || whitelist.Contains(localized))
+        if (noProtections || fromReactionCommands || whitelist.Contains(WaitCommand) || whitelist.Contains(localized))
         {
             reason = "pause";
             return true;

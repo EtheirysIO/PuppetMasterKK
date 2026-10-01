@@ -171,7 +171,7 @@ internal sealed partial class MainWindow
                 {
                     1 => busy,
                     2 => !busy && status == ReactionUiStatus.Ready,
-                    3 => status is ReactionUiStatus.InvalidTrigger or ReactionUiStatus.NoChannels or ReactionUiStatus.Unsafe,
+                    3 => status is ReactionUiStatus.InvalidTrigger or ReactionUiStatus.NoChannels or ReactionUiStatus.Unsafe or ReactionUiStatus.NoProtections,
                     4 => status == ReactionUiStatus.Disabled,
                     _ => true,
                 };

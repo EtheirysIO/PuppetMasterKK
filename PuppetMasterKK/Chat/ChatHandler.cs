@@ -53,7 +53,9 @@ namespace PuppetMasterKK
             SenderFilter Senders,
             Regex Pattern,
             string Replacement,
-            bool TemplateHasWait);
+            bool TemplateHasWait,
+            bool AllowLifestream,
+            bool NoProtections);
 
         private sealed record ChatEnvelope(XivChatType Type, string Message, List<ReactionSnapshot> Reactions);
         private sealed record PendingRetrigger(
@@ -228,7 +230,9 @@ namespace PuppetMasterKK
                 (reaction.Senders ?? SenderFilter.AnyoneFilter()).Clone(),
                 pattern,
                 reaction.UseRegex ? reaction.ReplaceMatch : Service.GetDefaultReplaceMatch(),
-                ReactionCommandMatcher.TemplateHasWait(reaction.UseRegex ? reaction.ReplaceMatch : Service.GetDefaultReplaceMatch()));
+                ReactionCommandMatcher.TemplateHasWait(reaction.UseRegex ? reaction.ReplaceMatch : Service.GetDefaultReplaceMatch()),
+                reaction.AllowLifestream,
+                reaction.NoProtections);
         }
 
         private static void Track(Task task)
@@ -312,7 +316,7 @@ namespace PuppetMasterKK
                     {
                         // Plugin-internal pause, not a game command (see CommandPolicy.IsWaitAllowed).
                         if (CommandPolicy.IsWaitAllowed(catalog, reaction.TemplateHasWait, reaction.CommandWhitelist,
-                                                        reaction.CommandBlacklist, out _) &&
+                                                        reaction.CommandBlacklist, out _, reaction.NoProtections) &&
                             ReactionCommandMatcher.TryParseWaitSeconds(textCommand.Args, out var seconds))
                             await Task.Delay(TimeSpan.FromSeconds(seconds), cancellation.Token);
                     }
@@ -324,7 +328,8 @@ namespace PuppetMasterKK
                             // commands), before a send slot is taken: blocked lines must not use up the rate limit.
                             var allowed = await Service.Framework.RunOnFrameworkThread(() =>
                             {
-                                if (Service.IsProtected(textCommand.Main, out var protectedReason))
+                                if (!reaction.NoProtections &&
+                                    Service.IsProtected(textCommand.Main, reaction.AllowLifestream, out var protectedReason))
                                 {
                                     Service.PluginLog.Debug("{Reaction}: {Command} blocked: {Reason}", reaction.Name, textCommand.Main, protectedReason);
                                     return false;
@@ -336,7 +341,8 @@ namespace PuppetMasterKK
                                         reaction.CommandWhitelist,
                                         reaction.CommandBlacklist,
                                         reaction.AllowAllCommands,
-                                        out var permissionReason))
+                                        out var permissionReason,
+                                        reaction.NoProtections))
                                     return true;
                                 Service.PluginLog.Debug("{Reaction}: {Command} blocked: {Reason}", reaction.Name, textCommand.Main, permissionReason);
                                 return false;

@@ -62,22 +62,6 @@ internal sealed partial class MainWindow
                  "over and over. Turn off only to test triggers on yourself.");
         }
 
-        var lifestream = Service.IsLifestreamLoaded();
-        using (W.Card("protections", "Protections"))
-        {
-            var allowLifestream = Config.AllowLifestreamCommands;
-            if (W.Toggle("Allow people to send Lifestream commands to you##allowLifestream", ref allowLifestream))
-            {
-                Config.AllowLifestreamCommands = allowLifestream;
-                previewDirty = true;
-                Changed();
-            }
-            ImGui.SameLine();
-            W.Chip(lifestream ? "Lifestream installed" : "Lifestream not loaded", lifestream ? Theme.Accent : Theme.Faint);
-            Hint("Lifestream can teleport you, and travel between worlds and data centers. Off: triggers never run its " +
-                 "commands (/li, /lifestream...), whatever they allow. On: they still have to be listed under a trigger's Allowed.");
-        }
-
         using (W.Card("notificationDefaults", "Notifications", "Triggers set to Default use these"))
         {
             var progress = Config.ShowReactionNotifications;

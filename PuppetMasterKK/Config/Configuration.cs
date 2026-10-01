@@ -62,6 +62,11 @@ namespace PuppetMasterKK
         public List<string> CommandBlacklist { get; set; } = [];
         // Who may trigger this reaction. Reactions from before v4 are migrated to Anyone.
         public SenderFilter Senders { get; set; } = new();
+        // Protections. Lifestream's commands (teleports, world and data center travel) only run when this is on (and
+        // they're listed under Allowed).
+        public bool AllowLifestream { get; set; } = false;
+        // Every built-in protection off: any command runs except this trigger's own Blocked list and /follow.
+        public bool NoProtections { get; set; } = false;
         // Runtime only. Compiled regexes must never be persisted: Newtonsoft would rebuild them without the match
         // timeout, and a stale saved pattern would shadow later edits to TriggerPhrase/CustomPhrase.
         [JsonIgnore]
@@ -174,8 +179,6 @@ namespace PuppetMasterKK
         //---- Version 4 Config
         // Your own chat lines never trigger reactions (stops a reaction from re-triggering itself).
         public bool IgnoreOwnMessages { get; set; } = true;
-        // Protections: off means triggers never run Lifestream's commands (teleports, world and data center travel).
-        public bool AllowLifestreamCommands { get; set; } = false;
         public EmoteReplySettings EmoteReplies { get; set; } = new();
         public FollowSettings Follow { get; set; } = new();
         // Set once the old Right Back At You settings have been looked for, so they're imported only once.

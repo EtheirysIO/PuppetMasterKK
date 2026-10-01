@@ -19,6 +19,11 @@ internal sealed partial class MainWindow
     private bool confirmDelete;
     private bool confirmAllowAll;
     private Reaction? allowAllTarget;
+    // Turning every protection off takes two confirmations; the second needs "I understand" ticked.
+    private Reaction? noProtectionsTarget;
+    private bool confirmNoProtections;
+    private bool confirmNoProtectionsAgain;
+    private bool noProtectionsUnderstood;
     private string allowInput = string.Empty;
     private string blockInput = string.Empty;
     // What's typed in each "Also these players" box, per card (the reaction editor and Emote replies have their own).
@@ -120,6 +125,7 @@ internal sealed partial class MainWindow
                     ReactionUiStatus.Disabled => (FontAwesomeIcon.CommentSlash, "Off"),
                     ReactionUiStatus.Ready => (FontAwesomeIcon.Comment, "On"),
                     ReactionUiStatus.Unsafe => (FontAwesomeIcon.ExclamationTriangle, "On · anyone in public"),
+                    ReactionUiStatus.NoProtections => (FontAwesomeIcon.ExclamationTriangle, "On · no protections"),
                     ReactionUiStatus.NoChannels => (FontAwesomeIcon.ExclamationTriangle, "No channels"),
                     _ => (FontAwesomeIcon.ExclamationTriangle, "Trigger not valid"),
                 };
@@ -155,6 +161,7 @@ internal sealed partial class MainWindow
         ReactionUiStatus.InvalidTrigger => ("The trigger isn't valid", Theme.Negative),
         ReactionUiStatus.NoChannels => ("No channels picked", Theme.Warning),
         ReactionUiStatus.Unsafe => ("Anyone in a public channel can trigger it", Theme.Warning),
+        ReactionUiStatus.NoProtections => ("No protections: anything can run", Theme.Negative),
         _ => ("Ready", Theme.Positive),
     };
 
@@ -224,6 +231,19 @@ internal sealed partial class MainWindow
         }
         if (!confirmAllowAll)
             allowAllTarget = null;
+
+        if (Modal.Confirm("Turn off every protection?##noProtections1", ref confirmNoProtections,
+                          "Turn off every protection for this trigger?", "Continue", danger: true,
+                          detail: "Anyone who can set it off could log you out, close the game, teleport you, post anything in " +
+                                  "any chat, and run any plugin's commands. Only its own Blocked list still applies."))
+        {
+            noProtectionsUnderstood = false;
+            confirmNoProtectionsAgain = true;
+        }
+        if (confirmNoProtectionsAgain)
+            Modal.Draw("Are you sure?##noProtections2", ref confirmNoProtectionsAgain, DrawNoProtectionsSecondConfirm);
+        if (!confirmNoProtections && !confirmNoProtectionsAgain)
+            noProtectionsTarget = null;
     }
 
     // ───────────────────────── Editor ─────────────────────────
@@ -254,6 +274,7 @@ internal sealed partial class MainWindow
                             : null);
         DrawChannelsCard(reaction);
         DrawCommandsCard(reaction);
+        DrawProtectionsCard(reaction);
         DrawTestCard(reaction);
         DrawTimingCard(reaction);
         DrawNotificationsCard(reaction);
@@ -434,6 +455,64 @@ internal sealed partial class MainWindow
             Hint("Emotes always run unless blocked. Chat commands (say, shout, tell, party, FC…) and other plugins' commands " +
                  "only run when listed as allowed, and so do teleporting, leaving the party and changing gear. " +
                  "/logout, /shutdown, /follow (that's Follow mode), /pmkk and /xl… never run.");
+        }
+    }
+
+    private void DrawNoProtectionsSecondConfirm()
+    {
+        ImGui.PushTextWrapPos(ImGui.GetFontSize() * 26f);
+        ImGui.TextColored(Theme.Ink, $"Last check: \"{(noProtectionsTarget != null ? DisplayName(noProtectionsTarget) : "this trigger")}\" will run any command it's sent.");
+        ImGui.TextColored(Theme.Dim, "You can turn protections back on at any time, and it goes back on its own if you duplicate the trigger.");
+        ImGui.PopTextWrapPos();
+        Gap(6f);
+        W.Checkbox("I understand that people can make my character do anything##noProtectionsUnderstood", ref noProtectionsUnderstood);
+        Gap(6f);
+        if (W.DangerButton("Turn off all protections##noProtectionsGo", enabled: noProtectionsUnderstood) && noProtectionsTarget != null)
+        {
+            noProtectionsTarget.NoProtections = true;
+            RulesChanged(noProtectionsTarget);
+            Modal.Close(ref confirmNoProtectionsAgain);
+        }
+        ImGui.SameLine();
+        if (W.SecondaryButton("Keep protections##noProtectionsKeep"))
+            Modal.Close(ref confirmNoProtectionsAgain);
+    }
+
+    private void DrawProtectionsCard(Reaction reaction)
+    {
+        using (W.Card("protections", "Protections", reaction.NoProtections ? "None" : null))
+        {
+            if (reaction.NoProtections)
+            {
+                W.Banner("No protections: anyone who can set off this trigger can make your character run any command, " +
+                         "except this trigger's Blocked list and /follow.", Theme.Negative, icon: FontAwesomeIcon.ExclamationTriangle);
+                if (W.SecondaryButton("Turn protections back on##protectionsOn"))
+                {
+                    reaction.NoProtections = false;
+                    RulesChanged(reaction);
+                }
+                return;
+            }
+
+            var lifestream = Service.IsLifestreamLoaded();
+            var allowLifestream = reaction.AllowLifestream;
+            if (W.Toggle("Allow people to send Lifestream commands to you##allowLifestream", ref allowLifestream))
+            {
+                reaction.AllowLifestream = allowLifestream;
+                RulesChanged(reaction);
+            }
+            ImGui.SameLine();
+            W.Chip(lifestream ? "Lifestream installed" : "Lifestream not loaded", lifestream ? Theme.Accent : Theme.Faint);
+            Hint("Lifestream can teleport you, and travel between worlds and data centers. Off: this trigger never runs its " +
+                 "commands (/li, /lifestream...). On: they still have to be listed under Allowed.");
+
+            Gap();
+            if (W.DangerButton("Turn off all protections...##protectionsOff"))
+            {
+                noProtectionsTarget = reaction;
+                confirmNoProtections = true;
+            }
+            Hint("For a trigger you trust completely: it then runs everything it's sent. Asks twice.");
         }
     }
 

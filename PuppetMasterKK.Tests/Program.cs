@@ -1128,8 +1128,18 @@ static void RunCommandPolicyTests()
     Assert(catalog.Classify("/pmkk") == CommandKind.Blocked && catalog.Classify("/PuppetMasterKK") == CommandKind.Blocked &&
            catalog.Classify("/puppetmaster") == CommandKind.Blocked,
         "this plugin's commands (and the old plugin's) should always be blocked");
-    Assert(!Allowed("/follow", ["/follow"], [], true) && catalog.Classify("/follow") == CommandKind.Blocked,
+    Assert(!Allowed("/follow", ["/follow"], [], true) && catalog.Classify("/follow") == CommandKind.FollowOnly,
         "triggers should never follow, even when /follow is listed: that is Follow mode's job");
+    bool Unprotected(string command, IEnumerable<string> block, Func<string, bool>? plugin = null) =>
+        CommandPolicy.IsAllowed(catalog.Canonicalize(command), catalog.Classify(command, plugin), catalog.CanonicalSet([]),
+            catalog.CanonicalSet(block), false, out _, noProtections: true);
+    Assert(Unprotected("/logout", []) && Unprotected("/sh", []) && Unprotected("/hello", [], _ => true) &&
+           Unprotected("/pmkk", []) && Unprotected("/nonsense", []),
+        "a trigger without protections should run everything, unlisted");
+    Assert(!Unprotected("/sh", ["/shout"]) && !Unprotected("/follow", []),
+        "without protections, the trigger's own Blocked list and /follow still hold");
+    Assert(CommandPolicy.IsWaitAllowed(catalog, false, catalog.CanonicalSet([]), catalog.CanonicalSet([]), out _, noProtections: true),
+        "without protections, a sender's /wait runs too");
     Assert(!Allowed("/pmkk", ["/pmkk"], [], true) && !Allowed("/puppetmasterkk", ["/puppetmasterkk"], [], true),
         "this plugin's commands should never run, even when listed and with any game command allowed");
 
@@ -1324,8 +1334,12 @@ static void RunFollowTests()
     Assert(!config.Follow.Enabled && config.Follow.FollowWords == "follow" && config.Follow.StopWords == "stop" &&
            config.Follow.Channels.SequenceEqual([13, 14, 24]) && !config.Follow.Senders.Anyone && config.Follow.StopMoves,
         "Follow mode should start off, with safe defaults");
-    Assert(!config.AllowLifestreamCommands && !DalamudJson.Load("{\"Version\": 4}").AllowLifestreamCommands,
-        "Lifestream commands should be off for new and existing configs");
+    Assert(!Reaction.CreateDefault().AllowLifestream && !Reaction.CreateDefault().NoProtections &&
+           !DalamudJson.Load("{\"Version\": 4, \"Reactions\": [{}]}").Reactions[0].AllowLifestream,
+        "triggers should start with Lifestream off and every protection on, new or loaded");
+    var trusted = new Reaction { NoProtections = true, AllowLifestream = true };
+    Assert(!PluginUiLogic.CloneReaction(trusted).NoProtections && PluginUiLogic.CloneReaction(trusted).AllowLifestream,
+        "a duplicate should keep Lifestream but never start without protections");
     var shrunk = new Configuration();
     shrunk.Follow.Channels = [13];
     Assert(DalamudJson.Load(DalamudJson.Save(shrunk)).Follow.Channels.SequenceEqual([13]),

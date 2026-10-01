@@ -11,6 +11,7 @@ internal enum ReactionUiStatus
     InvalidTrigger,
     NoChannels,
     Unsafe,
+    NoProtections,
     Ready,
 }
 
@@ -127,6 +128,8 @@ internal static class PluginUiLogic
             return ReactionUiStatus.InvalidTrigger;
         if (reaction.EnabledChannels == null || reaction.EnabledChannels.Count == 0)
             return ReactionUiStatus.NoChannels;
+        if (reaction.NoProtections)
+            return ReactionUiStatus.NoProtections;
         if (ListensToStrangers(reaction))
             return ReactionUiStatus.Unsafe;
         return ReactionUiStatus.Ready;
@@ -249,6 +252,9 @@ internal static class PluginUiLogic
             CommandWhitelist = new List<string>(source.CommandWhitelist),
             CommandBlacklist = new List<string>(source.CommandBlacklist),
             Senders = (source.Senders ?? SenderFilter.AnyoneFilter()).Clone(),
+            AllowLifestream = source.AllowLifestream,
+            // A copy never starts without protections: that takes its own two confirmations.
+            NoProtections = false,
         };
     }
 

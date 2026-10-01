@@ -204,12 +204,12 @@ namespace PuppetMasterKK
             return owner != null && owner.Equals("Lifestream", StringComparison.OrdinalIgnoreCase);
         }
 
-        // Settings > Protections, checked before a trigger's own rules (framework thread).
-        public static bool IsProtected(string command, out string reason)
+        // A trigger's protections beyond the command rules, checked first (framework thread).
+        public static bool IsProtected(string command, bool allowLifestream, out string reason)
         {
-            if (configuration?.AllowLifestreamCommands != true && IsLifestreamCommand(command))
+            if (!allowLifestream && IsLifestreamCommand(command))
             {
-                reason = "Lifestream commands are off (Settings > General > Protections)";
+                reason = "Lifestream commands are off for this trigger (Protections)";
                 return true;
             }
             reason = string.Empty;
@@ -218,7 +218,7 @@ namespace PuppetMasterKK
 
         public static bool IsCommandAllowed(Reaction reaction, string command, out string reason)
         {
-            if (IsProtected(command, out reason))
+            if (!reaction.NoProtections && IsProtected(command, reaction.AllowLifestream, out reason))
                 return false;
             var catalog = Commands;
             var canonical = catalog.Canonicalize(command);
@@ -230,7 +230,8 @@ namespace PuppetMasterKK
                     ReactionCommandMatcher.TemplateHasWait(replacement),
                     catalog.CanonicalSet(reaction.CommandWhitelist),
                     catalog.CanonicalSet(reaction.CommandBlacklist),
-                    out reason);
+                    out reason,
+                    reaction.NoProtections);
             }
             return CommandPolicy.IsAllowed(
                 canonical,
@@ -238,7 +239,8 @@ namespace PuppetMasterKK
                 catalog.CanonicalSet(reaction.CommandWhitelist),
                 catalog.CanonicalSet(reaction.CommandBlacklist),
                 reaction.AllowAllCommands,
-                out reason);
+                out reason,
+                reaction.NoProtections);
         }
 
         // True when this load brought over the old Puppet Master's settings.
