@@ -35,7 +35,7 @@ namespace PuppetMaster
                 ecommonsInitialized = true;
 
                 Service.InitializeConfig();
-                Service.InitializeEmotes();
+                Service.InitializeCommands();
 
                 this.configWindow = new ConfigWindow();
                 this.visualizerWindow = new ReactionVisualizerWindow();

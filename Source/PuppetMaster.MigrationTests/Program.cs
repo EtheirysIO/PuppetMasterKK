@@ -3,7 +3,7 @@ using PuppetMaster;
 
 Run("PuppetMaster_v0.json", configuration =>
 {
-    Assert(configuration.Version == 3, "v0 should migrate to v3");
+    Assert(configuration.Version == ConfigVersion.CURRENT, "v0 should migrate to the current version");
     Assert(configuration.Reactions.Count == 1, "v0 should create one reaction");
     var reaction = configuration.Reactions[0];
     Assert(reaction.TriggerPhrase == "please do", "v0 trigger should be preserved");
@@ -17,6 +17,9 @@ Run("PuppetMaster_v0.json", configuration =>
     Assert(configuration.DefaultEnabledChannels.Count == 0, "v0 should receive empty channel defaults");
     Assert(reaction.ExecutionPolicy == ReactionExecutionPolicy.QueueEveryTrigger,
         "v0 reaction should preserve legacy retrigger behavior");
+    Assert(reaction.Senders.Anyone, "migrated reactions should still react to anyone");
+    Assert(configuration.IgnoreOwnMessages, "migrated configs should ignore your own messages");
+    Assert(!configuration.EmoteReplies.Enabled, "emote replies should start off");
     Assert(reaction.ProgressNotifications == ReactionNotificationSetting.Inherit &&
            reaction.SuppressedNotifications == ReactionNotificationSetting.Inherit,
         "v0 reaction should inherit the v3 notification defaults");
@@ -24,7 +27,7 @@ Run("PuppetMaster_v0.json", configuration =>
 
 Run("PuppetMaster_v1.json", configuration =>
 {
-    Assert(configuration.Version == 3, "v1 should migrate to v3");
+    Assert(configuration.Version == ConfigVersion.CURRENT, "v1 should migrate to the current version");
     Assert(!configuration.ShowReactionNotifications, "v1 should keep notifications off during migration");
     Assert(!configuration.ShowSuppressedReactionNotifications, "v1 should keep suppression notifications off by default");
     Assert(configuration.Reactions[0].AllowAllCommands, "v1 AllowAllCommands should be preserved");
@@ -38,7 +41,7 @@ Run("PuppetMaster_v1.json", configuration =>
 
 Run("PuppetMaster_v2_legacy.json", configuration =>
 {
-    Assert(configuration.Version == 3, "v2 should migrate to v3");
+    Assert(configuration.Version == ConfigVersion.CURRENT, "v2 should migrate to the current version");
     Assert(!configuration.ShowReactionNotifications, "existing v2 notification choice should be preserved");
     Assert(configuration.ShowSuppressedReactionNotifications, "existing v2 suppression notification choice should be preserved");
     var reaction = configuration.Reactions[0];
@@ -83,6 +86,9 @@ Run("PuppetMaster_v2_legacy.json", configuration =>
         "new reactions should start disabled and follow both global notification defaults");
     Assert(created.TriggerPhrase == Reaction.DefaultTriggerPhrase && created.TriggerPhrase == "please do",
         "new reactions should start with the familiar default trigger");
+    Assert(!created.Senders.Anyone && created.Senders.Friends && created.Senders.FreeCompany && created.Senders.Party,
+        "new reactions should only react to friends, free company and party by default");
+    Assert(reaction.Senders.Anyone, "a reaction migrated from v2 should still react to anyone");
 
     created.TriggerPhrase = string.Empty;
     PluginUiLogic.EnsureRegexRestoreTrigger(created);
@@ -92,7 +98,7 @@ Run("PuppetMaster_v2_legacy.json", configuration =>
 
 Run("PuppetMaster_v2_null_collections.json", configuration =>
 {
-    Assert(configuration.Version == 3, "null-collection fixture should migrate to v3");
+    Assert(configuration.Version == ConfigVersion.CURRENT, "null-collection fixture should migrate to the current version");
     Assert(configuration.EnabledChannels.Count == 0, "null enabled channels should normalize to an empty list");
     Assert(configuration.CustomChannels.Count == 0, "null custom channels should normalize to an empty list");
     Assert(configuration.Reactions.Count == 0, "null reactions should normalize to an empty list");
@@ -119,6 +125,9 @@ RunReactionVisualizerStateTests();
 RunConfigurationUpgradeTransactionTests();
 RunDalamudRoundTripTests();
 RunWaitParsingTests();
+RunCommandPolicyTests();
+RunSenderFilterTests();
+RunRateLimiterTests();
 
 Console.WriteLine("All PuppetMaster configuration migration tests passed.");
 return;
@@ -1075,4 +1084,106 @@ static void RunWaitParsingTests()
         System.Globalization.CultureInfo.CurrentCulture = culture;
     }
     Console.WriteLine("PASS /wait parsing");
+}
+
+static void RunCommandPolicyTests()
+{
+    var catalog = new CommandCatalog(
+        [
+            ["/shout", "/sh"],
+            ["/echo", "/e"],
+            ["/logout"],
+            ["/action", "/ac"],
+            ["/say", "/s"],
+        ],
+        [
+            ["/dance"],
+            ["/wave"],
+        ]);
+
+    Assert(catalog.Canonicalize("/SH") == "/shout", "aliases should resolve to their command, ignoring case");
+    Assert(catalog.Canonicalize("/unknownthing") == "/unknownthing", "unknown commands should pass through lower-cased");
+    Assert(catalog.Classify("/dance") == CommandKind.Emote, "emotes should classify as emotes");
+    Assert(catalog.Classify("/sh") == CommandKind.Chat, "shout (by alias) should classify as chat");
+    Assert(catalog.Classify("/ac") == CommandKind.Game, "action should classify as a game command");
+    Assert(catalog.Classify("/hello", cmd => cmd == "/hello") == CommandKind.Plugin, "registered plugin commands should classify as plugin");
+    Assert(catalog.Classify("/hello") == CommandKind.Unknown, "unregistered commands should be unknown");
+
+    var none = catalog.CanonicalSet([]);
+    bool Allowed(string command, IEnumerable<string> allow, IEnumerable<string> block, bool allowAll, Func<string, bool>? plugin = null) =>
+        CommandPolicy.IsAllowed(catalog.Canonicalize(command), catalog.Classify(command, plugin),
+            catalog.CanonicalSet(allow), catalog.CanonicalSet(block), allowAll, out _);
+
+    Assert(Allowed("/dance", [], [], false), "emotes should be allowed without listing them");
+    Assert(!Allowed("/dance", [], ["/dance"], false), "a blocked emote should stay blocked");
+    Assert(!Allowed("/ac", [], [], false), "game commands need an allow entry by default");
+    Assert(Allowed("/ac", ["/action"], [], false), "an allow entry should cover the command's aliases");
+    Assert(Allowed("/ac", [], [], true), "allow-all should cover game commands");
+    Assert(!Allowed("/sh", [], [], true), "allow-all should never cover chat commands");
+    Assert(!Allowed("/sh", [], ["/shout"], true) && !Allowed("/shout", [], ["/sh"], false),
+        "blocking any form of a command should block every form of it");
+    Assert(Allowed("/sh", ["/shout"], [], false), "chat commands can still be allowed one by one");
+    Assert(!Allowed("/hello", [], [], true, cmd => cmd == "/hello"), "allow-all should never cover plugin commands");
+    Assert(Allowed("/hello", ["/hello"], [], false, cmd => cmd == "/hello"), "plugin commands can be allowed one by one");
+    Assert(!Allowed("/logout", ["/logout"], [], true), "/logout should be blocked even when allowed");
+    Assert(!Allowed("/puppetmaster", ["/puppetmaster"], [], true), "/puppetmaster should be blocked even when allowed");
+    Assert(!Allowed("/xlplugins", ["/xlplugins"], [], true, _ => true), "/xl commands should be blocked even when allowed");
+    Assert(!Allowed("/nonsense", [], [], true), "allow-all should not cover unknown commands");
+
+    Assert(CommandPolicy.ConvertPlaceholders("at [t] and [me]") == "at <t> and <me>", "target placeholders should convert");
+    Assert(CommandPolicy.ConvertPlaceholders("I am at [pos] [flag]") == "I am at [pos] [flag]",
+        "location placeholders should stay literal");
+    Assert(CommandPolicy.ConvertPlaceholders("[se.1] [2] [") == "[se.1] <2> [", "only safe placeholders convert, stray brackets stay");
+
+    Assert(ReactionCommandMatcher.EscapeTriggerPhrase("please.do") == @"please\.do", "trigger phrases should be literal text");
+    Assert(ReactionCommandMatcher.EscapeTriggerPhrase("hey (you|simon says") == @"hey\ \(you|simon\ says",
+        "alternatives should survive escaping");
+    var trigger = new Regex(@"(?i)\b(?:" + ReactionCommandMatcher.EscapeTriggerPhrase("please.do") + @")\s+(?:\((.*?)\)|(\w+))");
+    Assert(!trigger.IsMatch("pleaseXdo wave") && trigger.IsMatch("please.do wave"), "a dot in the trigger should be literal");
+
+    Console.WriteLine("PASS command policy");
+}
+
+static void RunSenderFilterTests()
+{
+    var stranger = new SenderInfo("Some Body", "Ultros", false, false, false, false);
+    var friend = stranger with { IsFriend = true };
+    var fc = stranger with { IsFreeCompany = true };
+    var party = stranger with { IsParty = true };
+
+    var defaults = new SenderFilter();
+    Assert(!defaults.Allows(stranger), "new filters should not allow strangers");
+    Assert(defaults.Allows(friend) && defaults.Allows(fc) && defaults.Allows(party), "new filters should allow friends, FC and party");
+    Assert(!defaults.Allows(SenderInfo.Unknown), "an unknown sender should only pass Anyone");
+    Assert(SenderFilter.AnyoneFilter().Allows(SenderInfo.Unknown), "Anyone should allow everyone");
+
+    var named = new SenderFilter { Friends = false, FreeCompany = false, Party = false, Named = ["some body@ultros", "Other Person"] };
+    Assert(named.Allows(stranger), "Name@World entries should match case-insensitively");
+    Assert(!named.Allows(stranger with { World = "Cactuar" }), "Name@World should not match another world");
+    Assert(named.Allows(new SenderInfo("Other Person", "Cactuar", false, false, false, false)), "a bare name should match any world");
+
+    var clone = named.Clone();
+    clone.Named.Add("Third One");
+    Assert(named.Named.Count == 2, "Clone should copy the named list");
+    Assert(defaults.Describe() == "Friends, Free Company, Party", "Describe should list the groups");
+    Assert(SenderFilter.AnyoneFilter().Describe() == "Anyone", "Describe should say Anyone");
+
+    Console.WriteLine("PASS sender filter");
+}
+
+static void RunRateLimiterTests()
+{
+    var limiter = new CommandRateLimiter(3, TimeSpan.FromSeconds(1));
+    var now = 1_000_000 * System.Diagnostics.Stopwatch.Frequency;
+    Assert(limiter.Reserve(now) == TimeSpan.Zero && limiter.Reserve(now) == TimeSpan.Zero && limiter.Reserve(now) == TimeSpan.Zero,
+        "a burst of three should go out at once");
+    var fourth = limiter.Reserve(now);
+    var fifth = limiter.Reserve(now);
+    Assert(Math.Abs(fourth.TotalSeconds - 1) < 0.001 && Math.Abs(fifth.TotalSeconds - 2) < 0.001,
+        "after the burst, sends should be one second apart");
+    var later = now + 60 * System.Diagnostics.Stopwatch.Frequency;
+    Assert(limiter.Reserve(later) == TimeSpan.Zero, "credit should come back after a quiet minute");
+    Assert(limiter.Reserve(later) == TimeSpan.Zero && limiter.Reserve(later) == TimeSpan.Zero && limiter.Reserve(later) > TimeSpan.Zero,
+        "credit should never exceed the burst size");
+    Console.WriteLine("PASS command rate limiter");
 }

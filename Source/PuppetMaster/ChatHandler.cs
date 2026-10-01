@@ -50,6 +50,7 @@ namespace PuppetMaster
             HashSet<int> EnabledChannels,
             HashSet<string> CommandWhitelist,
             HashSet<string> CommandBlacklist,
+            SenderFilter Senders,
             Regex Pattern,
             string Replacement);
 
@@ -220,8 +221,9 @@ namespace PuppetMaster
                 PluginUiLogic.ResolveNotificationSetting(reaction.SuppressedNotifications, showSuppressionNotifications),
                 Math.Max(0, reaction.CooldownSeconds),
                 new HashSet<int>(reaction.EnabledChannels),
-                new HashSet<string>(reaction.CommandWhitelist, StringComparer.OrdinalIgnoreCase),
-                new HashSet<string>(reaction.CommandBlacklist, StringComparer.OrdinalIgnoreCase),
+                Service.Commands.CanonicalSet(reaction.CommandWhitelist),
+                Service.Commands.CanonicalSet(reaction.CommandBlacklist),
+                (reaction.Senders ?? SenderFilter.AnyoneFilter()).Clone(),
                 pattern,
                 reaction.UseRegex ? reaction.ReplaceMatch : Service.GetDefaultReplaceMatch());
         }
@@ -296,56 +298,67 @@ namespace PuppetMaster
                             cancellation.Token);
                     }
 
-                    // Process emote
-                    var isEmote = Service.Emotes.Contains(textCommand.Main);
-                    if (isEmote)
-                    {
-                        if (reaction.MotionOnly)
-                            textCommand.Args = "motion";
-                    }
+                    var catalog = Service.Commands;
+                    var canonical = catalog.Canonicalize(textCommand.Main);
 
-                    if (textCommand.Main == "/wait")
+                    // Emotes never carry the sender's text unless the reaction allows it.
+                    if (reaction.MotionOnly && catalog.IsEmote(canonical))
+                        textCommand.Args = "motion";
+
+                    if (canonical == CommandPolicy.WaitCommand)
                     {
                         // Plugin-internal pause, not a game command: no allow-list entry needed, but a block entry
                         // still turns it off.
-                        if (!reaction.CommandBlacklist.Contains("/wait") && ReactionCommandMatcher.TryParseWaitSeconds(textCommand.Args, out var seconds))
+                        if (!reaction.CommandBlacklist.Contains(CommandPolicy.WaitCommand) &&
+                            ReactionCommandMatcher.TryParseWaitSeconds(textCommand.Args, out var seconds))
                             await Task.Delay(TimeSpan.FromSeconds(seconds), cancellation.Token);
-                    }
-                    else if (IsCommandAllowed(reaction, textCommand.Main, out var permissionReason))
-                    {
-                        {
-                            // Lifted from AmberPlume's pull request. (to review)
-                            try
-                            {
-                                // Critical fix: execute Chat.SendMessage on main thread
-                                await Service.Framework.RunOnFrameworkThread(() =>
-                                {
-                                    if (cancellation.IsCancellationRequested)
-                                        return;
-                                    try
-                                    {
-                                        Chat.SendMessage($"{textCommand}");
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        Service.ChatGui.PrintError($"[PuppetMaster] Failed to send command {textCommand}: {ex.Message}");
-                                    }
-                                });
-                                cancellation.Token.ThrowIfCancellationRequested();
-                            }
-                            catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
-                            {
-                                throw;
-                            }
-                            catch (Exception ex)
-                            {
-                                PrintErrorOnFramework($"[PuppetMaster] Framework thread execution failed: {ex.Message}", pluginToken);
-                            }
-                        }
                     }
                     else
                     {
-                        Service.PluginLog.Debug("{Reaction}: {Command} blocked: {Reason}", reaction.Name, textCommand.Main, permissionReason);
+                        // One shared limit on everything Puppet Master sends.
+                        var delay = CommandRateLimiter.Shared.Reserve(Stopwatch.GetTimestamp());
+                        if (delay > TimeSpan.Zero)
+                            await Task.Delay(delay, cancellation.Token);
+
+                        try
+                        {
+                            // The permission check and the send both happen on the framework thread: the check reads
+                            // the registered plugin commands, and Chat.SendMessage must run there.
+                            await Service.Framework.RunOnFrameworkThread(() =>
+                            {
+                                if (cancellation.IsCancellationRequested)
+                                    return;
+                                var kind = catalog.Classify(textCommand.Main, Service.IsPluginCommand);
+                                if (!CommandPolicy.IsAllowed(
+                                        canonical,
+                                        kind,
+                                        reaction.CommandWhitelist,
+                                        reaction.CommandBlacklist,
+                                        reaction.AllowAllCommands,
+                                        out var permissionReason))
+                                {
+                                    Service.PluginLog.Debug("{Reaction}: {Command} blocked: {Reason}", reaction.Name, textCommand.Main, permissionReason);
+                                    return;
+                                }
+                                try
+                                {
+                                    Chat.SendMessage(textCommand.ToString());
+                                }
+                                catch (Exception ex)
+                                {
+                                    Service.ChatGui.PrintError($"[PuppetMaster] Failed to send command {textCommand}: {ex.Message}");
+                                }
+                            });
+                            cancellation.Token.ThrowIfCancellationRequested();
+                        }
+                        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+                        {
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            PrintErrorOnFramework($"[PuppetMaster] Framework thread execution failed: {ex.Message}", pluginToken);
+                        }
                     }
                     if (notification != null)
                     {
@@ -405,32 +418,6 @@ namespace PuppetMaster
                 if (!pluginToken.IsCancellationRequested && Volatile.Read(ref shuttingDown) == 0)
                     Service.ChatGui.PrintError(message);
             }));
-        }
-
-        private static bool IsCommandAllowed(ReactionSnapshot reaction, string command, out string reason)
-        {
-            if (reaction.CommandBlacklist.Contains(command))
-            {
-                reason = "command is blacklisted";
-                return false;
-            }
-            if (Service.Emotes.Contains(command))
-            {
-                reason = "emote allowed by default";
-                return true;
-            }
-            if (reaction.AllowAllCommands)
-            {
-                reason = "Allow all text commands is enabled";
-                return true;
-            }
-            if (reaction.CommandWhitelist.Contains(command))
-            {
-                reason = "command is whitelisted";
-                return true;
-            }
-            reason = "command is not whitelisted";
-            return false;
         }
 
         private static async Task NotifySuppressionAsync(
@@ -768,7 +755,7 @@ namespace PuppetMaster
 
             try
             {
-                EnqueueMessage(type, message.ToString());
+                EnqueueMessage(type, sender, message.ToString());
             }
             catch (Exception ex)
             {
@@ -776,22 +763,34 @@ namespace PuppetMaster
             }
         }
 
-        private static void EnqueueMessage(XivChatType type, string message)
+        // Framework thread: the sender is resolved here, from the game's friend, FC and party lists.
+        private static void EnqueueMessage(XivChatType type, SeString sender, string message)
         {
-            var snapshots = new List<ReactionSnapshot>();
+            List<ReactionSnapshot>? snapshots = null;
+            SenderInfo? senderInfo = null;
             var configuration = Service.configuration!;
             foreach (var reaction in configuration.Reactions)
             {
                 if (!reaction.Enabled || !reaction.EnabledChannels.Contains((int)type))
                     continue;
+
+                if (configuration.IgnoreOwnMessages || reaction.Senders?.NeedsSender == true)
+                {
+                    senderInfo ??= SenderResolver.FromChat(type, sender);
+                    if (configuration.IgnoreOwnMessages && senderInfo.Value.IsSelf)
+                        return;
+                    if (reaction.Senders != null && !reaction.Senders.Allows(senderInfo.Value))
+                        continue;
+                }
+
                 var snapshot = CreateSnapshot(
                     reaction,
                     configuration.ShowReactionNotifications,
                     configuration.ShowSuppressedReactionNotifications);
                 if (snapshot != null)
-                    snapshots.Add(snapshot);
+                    (snapshots ??= []).Add(snapshot);
             }
-            if (snapshots.Count == 0)
+            if (snapshots == null)
                 return;
 
             dispatcher.Writer.TryWrite(new ChatEnvelope(type, message, snapshots));

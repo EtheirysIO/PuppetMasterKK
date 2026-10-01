@@ -25,6 +25,7 @@ public static class ConfigurationMigrator
                 0 => MigrateV0ToV1(configuration),
                 1 => MigrateV1ToV2(configuration),
                 2 => MigrateV2ToV3(configuration),
+                3 => MigrateV3ToV4(configuration),
                 _ => throw new InvalidOperationException(
                     $"No migration path exists from configuration v{configuration.Version}."),
             };
@@ -90,6 +91,20 @@ public static class ConfigurationMigrator
         return true;
     }
 
+    private static bool MigrateV3ToV4(Configuration configuration)
+    {
+        // Sender filters are new: keep every existing reaction working exactly as before.
+        configuration.Reactions ??= [];
+        foreach (var reaction in configuration.Reactions)
+        {
+            if (reaction != null)
+                reaction.Senders = SenderFilter.AnyoneFilter();
+        }
+        configuration.IgnoreOwnMessages = true;
+        configuration.Version = 4;
+        return true;
+    }
+
     private static bool NormalizeLegacyCommandRules(Configuration configuration)
     {
         var changed = false;
@@ -126,6 +141,26 @@ public static class ConfigurationMigrator
             configuration.DefaultEnabledChannels = [];
             changed = true;
         }
+        if (configuration.EmoteReplies == null)
+        {
+            configuration.EmoteReplies = new EmoteReplySettings();
+            changed = true;
+        }
+        if (configuration.EmoteReplies.Senders == null)
+        {
+            configuration.EmoteReplies.Senders = new SenderFilter();
+            changed = true;
+        }
+        if (configuration.EmoteReplies.Senders.Named == null)
+        {
+            configuration.EmoteReplies.Senders.Named = [];
+            changed = true;
+        }
+        if (configuration.EmoteReplies.PerPlayerCooldownSeconds < 0)
+        {
+            configuration.EmoteReplies.PerPlayerCooldownSeconds = 0;
+            changed = true;
+        }
         changed |= NormalizeCustomChannels(configuration.CustomChannels);
         changed |= DeduplicateCommands(configuration.DefaultCommandWhitelist);
         changed |= DeduplicateCommands(configuration.DefaultCommandBlacklist);
@@ -141,6 +176,8 @@ public static class ConfigurationMigrator
             if (reaction.EnabledChannels == null) { reaction.EnabledChannels = []; changed = true; }
             if (reaction.CommandWhitelist == null) { reaction.CommandWhitelist = []; changed = true; }
             if (reaction.CommandBlacklist == null) { reaction.CommandBlacklist = []; changed = true; }
+            if (reaction.Senders == null) { reaction.Senders = SenderFilter.AnyoneFilter(); changed = true; }
+            if (reaction.Senders.Named == null) { reaction.Senders.Named = []; changed = true; }
 
             changed |= DeduplicateChannels(reaction.EnabledChannels);
             changed |= DeduplicateCommands(reaction.CommandWhitelist);

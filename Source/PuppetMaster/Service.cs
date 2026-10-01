@@ -18,8 +18,8 @@ namespace PuppetMaster
     {
         public static Plugin? plugin;
         public static Configuration? configuration;
-        public static Lumina.Excel.ExcelSheet<Emote>? emoteCommands;
-        public static HashSet<String> Emotes = [];
+        // Every game command and emote, with aliases resolved. Empty until InitializeCommands runs.
+        public static CommandCatalog Commands { get; private set; } = CommandCatalog.Empty;
         public static string LastDebugLogExportPath { get; private set; } = string.Empty;
 
         public static Semaphore semaphore = new(initialCount:1, maximumCount:1);
@@ -38,27 +38,47 @@ namespace PuppetMaster
             return (LastDebugLogExportPath, entries.Length);
         }
 
-        public static void InitializeEmotes()
+        public static void InitializeCommands()
         {
-            emoteCommands = DataManager.GetExcelSheet<Emote>();
-            if (emoteCommands == null)
-                ChatGui.PrintError($"[PuppetMaster][Error] Failed to read Emotes list");
-            else
+            var gameCommands = new List<string[]>();
+            var textCommands = DataManager.GetExcelSheet<TextCommand>();
+            if (textCommands != null)
             {
-                foreach (var emoteCommand in emoteCommands)
-                {
-                    var cmd = emoteCommand.TextCommand.ValueNullable?.Command.ExtractText();
-                    if (cmd != null && cmd != "") Emotes.Add(cmd);
-                    cmd = emoteCommand.TextCommand.ValueNullable?.ShortCommand.ExtractText(); ;
-                    if (cmd != null && cmd != "") Emotes.Add(cmd);
-                    cmd = emoteCommand.TextCommand.ValueNullable?.Alias.ExtractText(); ;
-                    if (cmd != null && cmd != "") Emotes.Add(cmd);
-                    cmd = emoteCommand.TextCommand.ValueNullable?.ShortAlias.ExtractText(); ;
-                    if (cmd != null && cmd != "") Emotes.Add(cmd);
-                }
-                if (Emotes.Count == 0)
-                    ChatGui.PrintError($"[PuppetMaster][Error] Failed to build Emotes list");
+                foreach (var row in textCommands)
+                    gameCommands.Add(CommandForms(row));
             }
+
+            var emoteCommands = new List<string[]>();
+            var emotes = DataManager.GetExcelSheet<Emote>();
+            if (emotes != null)
+            {
+                foreach (var emote in emotes)
+                {
+                    if (emote.TextCommand.ValueNullable is { } command)
+                        emoteCommands.Add(CommandForms(command));
+                }
+            }
+
+            Commands = new CommandCatalog(gameCommands, emoteCommands);
+            if (Commands.EmoteCount == 0)
+                PluginLog.Error("PuppetMaster could not read the emote list; emotes will be treated as unknown commands.");
+        }
+
+        private static string[] CommandForms(TextCommand row)
+        {
+            var forms = new List<string>(4);
+            foreach (var text in new[] { row.Command, row.ShortCommand, row.Alias, row.ShortAlias })
+            {
+                var value = text.ExtractText();
+                if (!string.IsNullOrWhiteSpace(value))
+                    forms.Add(value);
+            }
+            return forms.ToArray();
+        }
+
+        public static bool IsPluginCommand(string command)
+        {
+            return CommandManager.Commands.ContainsKey(command);
         }
 
         public static void SetEnabledAll(bool enabled = true)
@@ -110,7 +130,7 @@ namespace PuppetMaster
         public static String GetDefaultRegex(int index)
         {
             return IsValidReactionIndex(index) && !configuration!.Reactions[index].TriggerPhrase.IsNullOrWhitespace() ?
-                @"(?i)\b(?:" + configuration.Reactions[index].TriggerPhrase + @")\s+(?:\((.*?)\)|(\w+))" : @"";
+                @"(?i)\b(?:" + ReactionCommandMatcher.EscapeTriggerPhrase(configuration.Reactions[index].TriggerPhrase) + @")\s+(?:\((.*?)\)|(\w+))" : @"";
         }
         public static String GetDefaultReplaceMatch()
         {
@@ -166,50 +186,42 @@ namespace PuppetMaster
         public static ParsedTextCommand FormatCommand(string command)
         {
             ParsedTextCommand textCommand = new();
-            if (command != string.Empty)
+            command = command.Trim();
+            if (command.Length == 0)
+                return textCommand;
+            if (!command.StartsWith('/'))
             {
-                command = command.Trim();
-                if (command.StartsWith('/'))
-                {
-                    command = command.Replace('[', '<').Replace(']', '>');
-                    var space = command.IndexOf(' ');
-                    textCommand.Main = (space == -1 ? command : command[..space]).ToLower();
-                    textCommand.Args = (space == -1 ? string.Empty : command[(space + 1)..]);
-                }
-                else
-                    textCommand.Main = command;
+                textCommand.Main = command;
+                return textCommand;
             }
+
+            // The command name ends at the first whitespace of any kind (a full-width space must not hide the name).
+            var end = 0;
+            while (end < command.Length && !char.IsWhiteSpace(command[end]))
+                end++;
+            textCommand.Main = command[..end].ToLowerInvariant();
+            textCommand.Args = CommandPolicy.ConvertPlaceholders(command[end..].Trim());
             return textCommand;
         }
 
+        // UI-side check; must run on the framework thread (it reads the registered plugin commands).
         public static bool IsCommandAllowed(Reaction reaction, string command, out string reason)
         {
-            if (reaction.CommandBlacklist.Exists(item => item.Equals(command, StringComparison.OrdinalIgnoreCase)))
+            var catalog = Commands;
+            var canonical = catalog.Canonicalize(command);
+            if (canonical == CommandPolicy.WaitCommand)
             {
-                reason = "command is blacklisted";
-                return false;
+                var blocked = catalog.CanonicalSet(reaction.CommandBlacklist).Contains(CommandPolicy.WaitCommand);
+                reason = blocked ? "blocked by this reaction" : "pause";
+                return !blocked;
             }
-
-            if (Emotes.Contains(command))
-            {
-                reason = "emote allowed by default";
-                return true;
-            }
-
-            if (reaction.AllowAllCommands)
-            {
-                reason = "Allow all text commands is enabled";
-                return true;
-            }
-
-            if (reaction.CommandWhitelist.Exists(item => item.Equals(command, StringComparison.OrdinalIgnoreCase)))
-            {
-                reason = "command is whitelisted";
-                return true;
-            }
-
-            reason = "command is not whitelisted";
-            return false;
+            return CommandPolicy.IsAllowed(
+                canonical,
+                catalog.Classify(command, IsPluginCommand),
+                catalog.CanonicalSet(reaction.CommandWhitelist),
+                catalog.CanonicalSet(reaction.CommandBlacklist),
+                reaction.AllowAllCommands,
+                out reason);
         }
 
         public static ParsedTextCommand GetTestInputCommand(int index)
@@ -368,20 +380,11 @@ namespace PuppetMaster
         [PluginService]
         public static ICommandManager CommandManager { get; private set; } = null!;
 
-        //[PluginService]
-        //public static IClientState ClientState { get; private set; } = null!;
-
         [PluginService]
         public static IChatGui ChatGui { get; private set; } = null!;
 
         [PluginService]
         public static ISigScanner SigScanner { get; private set; } = null!;
-
-        //[PluginService]
-        //public static IObjectTable ObjectTable { get; private set; } = null!;
-
-        //[PluginService]
-        //public static ITargetManager TargetManager { get; private set; } = null!;
 
         [PluginService]
         public static IDataManager DataManager { get; private set; } = null!;
@@ -394,5 +397,23 @@ namespace PuppetMaster
 
         [PluginService]
         public static IPluginLog PluginLog { get; private set; } = null!;
+
+        [PluginService]
+        public static IPartyList PartyList { get; private set; } = null!;
+
+        [PluginService]
+        public static IObjectTable ObjectTable { get; private set; } = null!;
+
+        [PluginService]
+        public static IPlayerState PlayerState { get; private set; } = null!;
+
+        [PluginService]
+        public static ITargetManager TargetManager { get; private set; } = null!;
+
+        [PluginService]
+        public static IGameInteropProvider GameInterop { get; private set; } = null!;
+
+        [PluginService]
+        public static IClientState ClientState { get; private set; } = null!;
     }
 }

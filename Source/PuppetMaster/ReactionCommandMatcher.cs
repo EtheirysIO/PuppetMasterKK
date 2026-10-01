@@ -73,4 +73,13 @@ internal static class ReactionCommandMatcher
         seconds = Math.Clamp(parsed, 0.0, 60.0);
         return true;
     }
+
+    // The trigger phrase is plain text: "please.do" means a literal dot. "|" still separates alternative phrases.
+    public static string EscapeTriggerPhrase(string phrase)
+    {
+        var parts = phrase.Split('|');
+        for (var i = 0; i < parts.Length; i++)
+            parts[i] = Regex.Escape(parts[i]);
+        return string.Join("|", parts);
+    }
 }

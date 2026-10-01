@@ -25,7 +25,7 @@ namespace PuppetMaster
 
     public class ConfigVersion
     {
-        public const int CURRENT = 3;
+        public const int CURRENT = 4;
     }
 
     public class ChannelSetting
@@ -60,6 +60,8 @@ namespace PuppetMaster
         public List<int> EnabledChannels { get; set; } = [];
         public List<string> CommandWhitelist { get; set; } = [];
         public List<string> CommandBlacklist { get; set; } = [];
+        // Who may trigger this reaction. Reactions from before v4 are migrated to Anyone.
+        public SenderFilter Senders { get; set; } = new();
         // Runtime only. Compiled regexes must never be persisted: Newtonsoft would rebuild them without the match
         // timeout, and a stale saved pattern would shadow later edits to TriggerPhrase/CustomPhrase.
         [JsonIgnore]
@@ -88,6 +90,18 @@ namespace PuppetMaster
                     : ["/sit", "/groundsit", "/lounge"],
             };
         }
+    }
+
+    // Replying to emotes aimed at you (formerly the separate "Right Back At You" plugin).
+    public class EmoteReplySettings
+    {
+        public bool Enabled { get; set; } = false;
+        public bool TargetBack { get; set; } = true;
+        public bool MotionOnly { get; set; } = true;
+        // After replying to a player, their emotes are ignored for this long. This is what stops two players who
+        // both reply to emotes from emoting at each other forever.
+        public int PerPlayerCooldownSeconds { get; set; } = 10;
+        public SenderFilter Senders { get; set; } = new();
     }
 
     [Serializable]
@@ -122,6 +136,13 @@ namespace PuppetMaster
         public bool DefaultMotionOnly { get; set; } = true;
         public List<int> DefaultEnabledChannels { get; set; } = [];
         public int MaxRegexLength { get; set; } = 1000;
+
+        //---- Version 4 Config
+        // Your own chat lines never trigger reactions (stops a reaction from re-triggering itself).
+        public bool IgnoreOwnMessages { get; set; } = true;
+        public EmoteReplySettings EmoteReplies { get; set; } = new();
+        // Set once the old Right Back At You settings have been looked for, so they're imported only once.
+        public bool CopycatImportChecked { get; set; } = false;
 
         [NonSerialized]
         private IDalamudPluginInterface? pluginInterface;

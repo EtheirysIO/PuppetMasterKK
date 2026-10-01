@@ -29,6 +29,8 @@
     <Compile Include="..\PuppetMaster\BoundedRetriggerScheduler.cs" Link="BoundedRetriggerScheduler.cs" />
     <Compile Include="..\PuppetMaster\ReactionVisualizerState.cs" Link="ReactionVisualizerState.cs" />
     <Compile Include="..\PuppetMaster\ConfigurationUpgradeTransaction.cs" Link="ConfigurationUpgradeTransaction.cs" />
+    <Compile Include="..\PuppetMaster\CommandPolicy.cs" Link="CommandPolicy.cs" />
+    <Compile Include="..\PuppetMaster\SenderFilter.cs" Link="SenderFilter.cs" />
     <None Include="..\PuppetMaster\TestConfigs\*.json" Link="TestConfigs\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
