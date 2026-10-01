@@ -96,15 +96,36 @@ internal static class FollowMode
             return;
         }
 
-        // Targeting and /follow go together on this tick: /follow follows the current target.
         if (!CommandRateLimiter.Shared.TryAcquire(Stopwatch.GetTimestamp()))
         {
             Service.PluginLog.Debug("Follow request for {Target} dropped: sending too fast.", target.Name);
             return;
         }
-        Service.TargetManager.Target = characters[index];
-        Chat.SendMessage("/follow");
-        Following = target.Name;
+
+        // Target first. The game takes the new target on a later frame, so /follow goes out a moment after, as
+        // "/follow <t>" (the game's own "my current target"), and only if the target is still that player.
+        var character = characters[index];
+        var targetId = character.GameObjectId;
+        Service.TargetManager.Target = character;
+        _ = Service.Framework.RunOnTick(() => SendFollow(targetId, target.Name), TimeSpan.FromMilliseconds(150));
+    }
+
+    private static void SendFollow(ulong targetId, string name)
+    {
+        try
+        {
+            if (Service.TargetManager.Target?.GameObjectId != targetId)
+            {
+                Service.PluginLog.Information("Not following {Target}: the target changed before /follow.", name);
+                return;
+            }
+            Chat.SendMessage("/follow <t>");
+            Following = name;
+        }
+        catch (Exception ex)
+        {
+            Service.PluginLog.Warning(ex, "Couldn't follow {Target}.", name);
+        }
     }
 
     private static void ReplyNotNearby(SenderInfo who, string shownName, FollowSettings settings)
