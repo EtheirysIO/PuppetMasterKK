@@ -3,7 +3,7 @@
 PuppetMasterKK lets trusted chat messages boss your character around—wave, pose, perform a short routine, or run another text command you explicitly allow. It can also answer emotes aimed at you with the same emote.
 
 > [!CAUTION]
-> A reaction can run text commands on your character. Choose who can trigger it, use specific triggers and trusted channels, and allow only the commands you need.
+> A trigger can run text commands on your character. Choose who can set it off, use specific phrases and trusted channels, and allow only the commands you need.
 
 ## Install and open
 
@@ -15,36 +15,37 @@ PuppetMasterKK lets trusted chat messages boss your character around—wave, pos
 > [!IMPORTANT]
 > There can be only one. PuppetMasterKK replaces the original Puppet Master and Right Back At You. If another puppet-master
 > plugin is loaded, every trigger would fire twice, so PuppetMasterKK warns you when it starts: disable or uninstall the
-> other one. On its first start, PuppetMasterKK brings over your Puppet Master reactions and settings (from its settings
+> other one. On its first start, PuppetMasterKK brings over your Puppet Master triggers and settings (from its settings
 > file, or the newest backup of it that reads); the old files aren't changed.
 
 The sidebar picks the page:
 
-- **Reactions** — your reactions are listed at the top of the sidebar; pick one to edit it, or **+** to make one.
+- **Triggers** — your triggers are listed at the top of the sidebar; pick one to edit it, or **+** to make one.
 - **Emote replies** — answer emotes aimed at you.
+- **Follow mode** — follow whoever asks (or the player they name), and stop everything on request.
 - **Activity** — what's running, waiting and recently finished.
-- **Message log** — capture chat to find channels and build reactions.
-- **Settings** — general options, defaults for new reactions, custom channels and appearance.
+- **Message log** — capture chat to find channels and build triggers.
+- **Settings** — general options, defaults for new triggers, custom channels and appearance.
 
 What's running is also shown at the bottom of the sidebar, with **Cancel**. The chevron in the header (or a double-click on it) folds the window down to a title bar.
 
-## Create your first reaction
+## Create your first trigger
 
 Start with a simple wave. Once that works, you can decide how much chaos your friends are allowed to cause.
 
-1. Select **+** next to **Reactions** in the sidebar.
+1. Select **+** next to **Triggers** in the sidebar.
 2. Give it a recognizable name, such as `Please do`.
-3. Under **Trigger**, keep **Phrase** and enter `please do`.
+3. Under **Listens for**, keep **Phrase** and enter `please do`.
 4. Under **Who can trigger it**, keep **Friends**, **Free Company** and **Party and alliance**, or add specific players.
 5. Under **Channels**, select **Pick channels** and choose where it listens.
 6. Under **Try it**, enter `please do wave`. The `/wave` line should say **Runs**.
 7. Turn it on with the **On** switch in the header.
 
-A new reaction starts off. **Settings → New reactions** holds the defaults copied into reactions created afterward.
+A new trigger starts off. **Settings → New triggers** holds the defaults copied into triggers created afterward.
 
-## Trigger matching
+## Phrase matching
 
-A trigger tells PuppetMasterKK which chat messages deserve a reaction. Specific phrases are safer and less likely to fire by accident.
+A trigger's phrase tells PuppetMasterKK which chat messages it answers. Specific phrases are safer and less likely to fire by accident.
 
 ### Phrase triggers
 
@@ -114,7 +115,7 @@ Use `^` and `$` when the entire message must match. **Restore defaults** puts ba
 
 ## Who can trigger it
 
-Each reaction chooses who can set it off:
+Each trigger chooses who can set it off:
 
 - **Anyone** — every player who can talk in the picked channels.
 - **Friends** — players on your friend list.
@@ -122,13 +123,13 @@ Each reaction chooses who can set it off:
 - **Party and alliance** — your party and alliance, and their chat channels.
 - **Also these players** — named players, as `Name@World`, or just `Name` for any world.
 
-New reactions start with Friends, Free Company and Party. Reactions from before this option existed were set to **Anyone**, so they keep working as they did; review them. A reaction that **Anyone** can trigger from a public channel (Say, Shout, Yell, Tell, Party, Alliance, Novice Network, the emote channels or a cross-world linkshell) shows a warning, because strangers can trigger it.
+New triggers start with Friends, Free Company and Party. Triggers from before this option existed were set to **Anyone**, so they keep working as they did; review them. A trigger that **Anyone** can trigger from a public channel (Say, Shout, Yell, Tell, Party, Alliance, Novice Network, the emote channels or a cross-world linkshell) shows a warning, because strangers can trigger it.
 
-Your own chat lines never trigger reactions (**Settings → General → Ignore my own messages**).
+Your own chat lines never set off a trigger (**Settings → General → Ignore my own messages**).
 
 ## Command rules
 
-**Commands** decides how much control a reaction gets:
+**Commands** decides how much control a trigger gets:
 
 1. Commands under **Blocked** never run.
 2. Emotes run unless they're blocked.
@@ -144,7 +145,7 @@ Everything PuppetMasterKK sends goes through one limit: up to three commands at 
 
 ## Channels
 
-Pick at least one channel. Start small; you can always add more. A reaction with no channel can't activate. Public channels are tinted as a reminder that strangers talk there.
+Pick at least one channel. Start small; you can always add more. A trigger with no channel can't activate. Public channels are tinted as a reminder that strangers talk there.
 
 <details>
 <summary>Discover and use a custom channel</summary>
@@ -153,15 +154,15 @@ Pick at least one channel. Start small; you can always add more. A reaction with
 2. Cause the desired message in game.
 3. Hover the dot at the start of its row to see its channel and number.
 4. If the channel is unknown, the **#** button on the row adds it to **Settings → Custom channels**, where you can name it.
-5. Pick it for your reaction under **Channels → Pick channels → Custom**.
+5. Pick it for your trigger under **Channels → Pick channels → Custom**.
 
-The **+** button on a row makes a new reaction that matches that exact message and listens only to its channel.
+The **+** button on a row makes a new trigger that matches that exact message and listens only to its channel.
 
-Channel numbers may change after a game or Dalamud update. If a custom channel stops working, use the message log to find its new number and change it in **Settings → Custom channels**; reactions using the old number follow it.
+Channel numbers may change after a game or Dalamud update. If a custom channel stops working, use the message log to find its new number and change it in **Settings → Custom channels**; triggers using the old number follow it.
 
 </details>
 
-## Control how reactions run
+## Control how triggers run
 
 **Repeats and cooldown** decides whether another matching message is ignored, saved for later, or allowed to interrupt.
 
@@ -175,13 +176,13 @@ With a regex trigger, the commands can be one per line. Every line is checked on
 /echo done
 ```
 
-`/wait` pauses before the next line, for up to 60 seconds, and takes decimals such as `/wait 0.5` (always with a dot). A `/wait` in the reaction's own commands doesn't need to be allowed. One that comes from a sender's message ("please do (wait 60)") only runs if `/wait` is under **Allowed**, so strangers can't keep a reaction busy. Block `/wait` to turn pauses off entirely.
+`/wait` pauses before the next line, for up to 60 seconds, and takes decimals such as `/wait 0.5` (always with a dot). A `/wait` in the trigger's own commands doesn't need to be allowed. One that comes from a sender's message ("please do (wait 60)") only runs if `/wait` is under **Allowed**, so strangers can't keep a trigger busy. Block `/wait` to turn pauses off entirely.
 
 ### What running means
 
 PuppetMasterKK knows when it sends a command, but not when the game finishes it. In the example above, it sends `/wave`, waits about two seconds, then sends `/echo done`. The wait doesn't confirm that the wave animation finished.
 
-To keep a reaction busy after its final command, end with a wait:
+To keep a trigger busy after its final command, end with a wait:
 
 ```text
 /wave
@@ -192,36 +193,36 @@ Cancelling stops unsent lines and current waits, but it can't undo a command alr
 
 ### Cooldown and repeat behavior
 
-While a reaction is busy, another run of that same reaction can't start. Different reactions can still overlap.
+While a trigger is busy, another run of that same trigger can't start. Different triggers can still overlap.
 
-**Cooldown** is the minimum time between starts. With a 10-second cooldown, a reaction starting at `00:00` can't start again before `00:10`. It must also finish its current run first.
+**Cooldown** is the minimum time between starts. With a 10-second cooldown, a trigger starting at `00:00` can't start again before `00:10`. It must also finish its current run first.
 
 ### When another message arrives
 
-| If another message arrives while the reaction is busy… | Choose |
+| If another message arrives while the trigger is busy… | Choose |
 | --- | --- |
 | Ignore it | **Ignore** |
 | Run every request afterward | **Queue every trigger** |
 | Keep only the newest request | **Queue latest trigger** |
 | Stop the remaining steps and react again immediately | **Restart immediately** |
 
-Use **Restart immediately** for short reactions that should respond again right away. Avoid it for long multi-line reactions, because a new message stops the remaining lines and cooldown doesn't apply.
+Use **Restart immediately** for short triggers that should respond again right away. Avoid it for long multi-line triggers, because a new message stops the remaining lines and cooldown doesn't apply.
 
 <details>
 <summary>More about cooldowns and waiting requests</summary>
 
-- Cooldown starts when a reaction starts.
+- Cooldown starts when a trigger starts.
 - Waiting requests run in the order they arrived, and a new message never jumps ahead of them.
-- **Queue every trigger** keeps up to 16 waiting requests per reaction.
-- Only a busy reaction saves requests: one that arrives while the reaction is idle but still cooling down is ignored.
+- **Queue every trigger** keeps up to 16 waiting requests per trigger.
+- Only a busy trigger saves requests: one that arrives while the trigger is idle but still cooling down is ignored.
 - **Restart immediately** stops unsent lines, clears older waiting requests, and starts the newest request without cooldown.
-- Turning a reaction off or deleting it stops its current wait and clears its waiting requests. Changing its senders, commands or emote text stops the current run and clears waiting requests; other changes clear waiting requests, and a run already going finishes with the settings it started with.
+- Turning a trigger off or deleting it stops its current wait and clears its waiting requests. Changing its senders, commands or emote text stops the current run and clears waiting requests; other changes clear waiting requests, and a run already going finishes with the settings it started with.
 
 </details>
 
-### Avoiding reaction loops
+### Avoiding trigger loops
 
-A reaction that answers itself can loop forever—funny once, less funny when you can't stop waving. Ignoring your own messages stops the simple case, but two players whose reactions answer each other can still loop. Use cooldowns, and check whether a reaction's commands could produce a message that triggers it (or someone else's) again.
+A trigger that answers itself can loop forever—funny once, less funny when you can't stop waving. Ignoring your own messages stops the simple case, but two players whose triggers answer each other can still loop. Use cooldowns, and check whether a trigger's commands could produce a message that triggers it (or someone else's) again.
 
 To stop everything at once:
 
@@ -229,7 +230,19 @@ To stop everything at once:
 /pmkk off
 ```
 
-This also clears waiting requests. **Cancel** in the sidebar stops every reaction and clears what's waiting; **Stop** on the Activity page stops one reaction.
+This also clears waiting requests. **Cancel** in the sidebar stops every trigger and clears what's waiting; **Stop** on the Activity page stops one trigger.
+
+## Follow mode
+
+**Follow mode** lets someone you trust make you follow them, or another player, and stop you again.
+
+- **Call name** is what people call you (`Ami`; several with `|`). **Follow word** (`follow`) and **Stop word** (`stop`) can be changed, and take several with `|` too, such as `follow|come`.
+- `Ami follow` follows whoever said it (`Ami follow me` too). `Ami follow Nova Ral'veth@Exodus` follows that player; `Ami follow Nova` works when only one Nova is nearby. PuppetMasterKK targets the player, then sends `/follow`.
+- The player has to be nearby. If they aren't, PuppetMasterKK can **Reply by tell** with your own message, where `<target>` becomes the name they asked for: `uwu I'm sorry master I don't see <target> near me :c`. One reply per person every 10 seconds.
+- **Channels** picks where it listens (Tell, Party and Free Company to start). **Who can trigger it** works as it does for triggers, and **Never take requests from** blocks people outright.
+- **Who you'll follow**: when **Only follow** has names, only they are followed; **Never follow** always wins.
+- `Ami stop` stops every trigger (running or waiting). With **Also stand still** on, it takes one tiny `/automove` step, which ends following, emote loops, sitting and lying down, leaving you standing. **Then run** adds your own commands after that.
+- A line Follow mode takes isn't also matched by your triggers.
 
 ## Emote replies
 
@@ -240,7 +253,7 @@ This also clears waiting requests. **Cancel** in the sidebar stops every reactio
 - **Wait before answering the same player again** (10 seconds by default, at least 3) stops two players who both answer emotes from emoting at each other forever.
 - **Never answer with** lists emotes that are never copied back (sitting, lounging and dozing by default, so nobody can make you lie down).
 - Replies pause while you're in combat, so your target never changes mid-fight.
-- **Who can trigger it** works as it does for reactions.
+- **Who can trigger it** works as it does for triggers.
 
 If a game update moves the emote function, the page says emote replies are unavailable until PuppetMasterKK is updated.
 
@@ -248,12 +261,12 @@ If a game update moves the emote function, the page says emote replies are unava
 
 Under **Settings → General → Notifications**:
 
-- **While a reaction runs and when it ends** shows start, step progress, completion, cancellation and a Cancel button.
-- **When a trigger is ignored** occasionally tells you a message was ignored because the reaction was busy or cooling down.
+- **While a trigger runs and when it ends** shows start, step progress, completion, cancellation and a Cancel button.
+- **When a trigger is ignored** occasionally tells you a message was ignored because the trigger was busy or cooling down.
 
 "Completed" means PuppetMasterKK finished sending the configured lines. It doesn't mean the game finished them.
 
-Each reaction can choose **Default**, **Show** or **Hide** for both under **Notifications**. **Default** follows Settings.
+Each trigger can choose **Default**, **Show** or **Hide** for both under **Notifications**. **Default** follows Settings.
 
 ## Activity
 
@@ -263,7 +276,7 @@ Open **Activity** from the sidebar, or run:
 /pmkk viz
 ```
 
-It shows what's running (with **Stop**), what's waiting, what recently finished and how long it took, and the state of every reaction. Select a reaction's name to open it in the editor.
+It shows what's running (with **Stop**), what's waiting, what recently finished and how long it took, and the state of every trigger. Select a trigger's name to open it in the editor.
 
 ## Message log
 
@@ -271,7 +284,7 @@ When a trigger mysteriously refuses to work, the message log is usually the best
 
 - Turn on **Capture messages** to start logging. It's off every time the plugin starts.
 - **Color by channel** and **Follow new messages** only affect this session.
-- **+** makes a new reaction from a message; **#** adds an unknown channel.
+- **+** makes a new trigger from a message; **#** adds an unknown channel.
 - **Save to file** writes the log to a text file; **Clear** empties it.
 
 Commands:
@@ -286,13 +299,13 @@ Commands:
 <details>
 <summary>Discarded messages</summary>
 
-During extreme message spam, PuppetMasterKK may discard older messages that are still waiting to be matched, and requests beyond the 16 a reaction can queue. The message log and Activity show how many were discarded.
+During extreme message spam, PuppetMasterKK may discard older messages that are still waiting to be matched, and requests beyond the 16 a trigger can queue. The message log and Activity show how many were discarded.
 
 </details>
 
-## Managing reactions and commands
+## Managing triggers and commands
 
-Reactions may share a name. Name-based commands affect every exact, case-sensitive match.
+Triggers may share a name. Name-based commands affect every exact, case-sensitive match.
 
 ```text
 /pmkk
@@ -331,22 +344,22 @@ When PuppetMasterKK upgrades settings from an older version, it first saves a da
 
 ### The test works but nothing happens in game
 
-- Turn the reaction on.
+- Turn the trigger on.
 - Pick the right channel.
 - Check **Who can trigger it**: the sender may not be a friend, FC member or party member as far as the game knows.
 - Your own messages are ignored unless you turn that off in Settings.
-- Check that the reaction isn't busy or cooling down.
+- Check that the trigger isn't busy or cooling down.
 - Turn on the message log and check the channel the message really arrives on.
 - Check the notifications and the Dalamud plugin log (`/xllog`).
 
-### A reaction runs too often
+### A trigger runs too often
 
 - Use a longer trigger phrase, or anchor a regex with `^` and `$`.
 - Narrow the channels and who can trigger it.
 - Add a cooldown.
 - Choose **Ignore** or **Queue latest trigger** instead of queueing every trigger.
 
-### A custom-channel reaction stopped working
+### A custom-channel trigger stopped working
 
 - Turn on the message log and find the channel's new number.
 - Change it in **Settings → Custom channels**.

@@ -106,6 +106,7 @@ namespace PuppetMasterKK
 
         public static void Shutdown()
         {
+            FollowMode.Reset();
             Volatile.Write(ref shuttingDown, 1);
             pluginLifetime.Cancel();
             dispatcher.Writer.TryComplete();
@@ -766,6 +767,9 @@ namespace PuppetMasterKK
 
             try
             {
+                // Follow mode first: a line it takes ("Ami follow") isn't also matched by the triggers.
+                if (FollowMode.TryHandle(type, sender, message))
+                    return;
                 EnqueueMessage(type, sender, message);
             }
             catch (Exception ex)

@@ -165,6 +165,7 @@ RunWaitParsingTests();
 RunCommandPolicyTests();
 RunSenderFilterTests();
 RunRateLimiterTests();
+RunFollowTests();
 
 Console.WriteLine("All PuppetMasterKK tests passed.");
 return;
@@ -1256,4 +1257,78 @@ static void RunRateLimiterTests()
     Assert(!skipper.TryAcquire(now), "TryAcquire should refuse rather than wait once the burst is spent");
     Assert(skipper.TryAcquire(now + System.Diagnostics.Stopwatch.Frequency), "TryAcquire should succeed once a send is free again");
     Console.WriteLine("PASS command rate limiter");
+}
+
+static void RunFollowTests()
+{
+    FollowRequest Parse(string message, string call = "Ami", string follow = "follow", string stop = "stop")
+        => FollowParser.Parse(ReactionCommandMatcher.SanitizeIncoming(message), call, follow, stop);
+
+    Assert(Parse("Ami follow") == new FollowRequest(FollowRequestKind.Follow, ""), "\"Ami follow\" should follow the sender");
+    Assert(Parse("ami FOLLOW!") == new FollowRequest(FollowRequestKind.Follow, ""), "case and trailing punctuation shouldn't matter");
+    Assert(Parse("Ami, follow me") == new FollowRequest(FollowRequestKind.Follow, ""), "\"me\" should mean the sender");
+    Assert(Parse("Ami follow Nova Ral'veth@Exodus") == new FollowRequest(FollowRequestKind.Follow, "Nova Ral'veth@Exodus"),
+        "a named player should be the target");
+    Assert(Parse("hey Ami follow Nova.") == new FollowRequest(FollowRequestKind.Follow, "Nova"), "the request can follow other words");
+    Assert(Parse("Ami stop") == new FollowRequest(FollowRequestKind.Stop, "") && Parse("ok Ami, STOP now").Kind == FollowRequestKind.Stop,
+        "the stop word should stop");
+    Assert(Parse("Amity follow").Kind == FollowRequestKind.None && Parse("Ami followers").Kind == FollowRequestKind.None,
+        "call names and words must be whole words");
+    Assert(Parse("follow Ami").Kind == FollowRequestKind.None, "the call name comes first");
+    Assert(Parse("Ami come", follow: "follow|come").Kind == FollowRequestKind.Follow &&
+           Parse("Kitty follow", call: "Ami|Kitty").Kind == FollowRequestKind.Follow,
+        "several call names and follow words should work");
+    Assert(Parse("Ami follow", call: "").Kind == FollowRequestKind.None && Parse("Ami follow", call: " | ").Kind == FollowRequestKind.None,
+        "no call name means no requests");
+    Assert(Parse("Ami.* follow", call: "Ami.*").Kind == FollowRequestKind.Follow && Parse("Amixx follow", call: "Ami.*").Kind == FollowRequestKind.None,
+        "call names are plain text, not patterns");
+    Assert(!Parse("Ami follow Nova\r/sh hi").Target.Contains('\r'), "a line break can't sneak into the target");
+
+    Assert(FollowParser.SplitName("Nova Ral'veth@Exodus") == new PlayerName("Nova Ral'veth", "Exodus") &&
+           FollowParser.SplitName(" Nova ") == new PlayerName("Nova", ""),
+        "Name@World should split into name and world");
+
+    PlayerName[] nearby =
+    [
+        new("Nova Ral'veth", "Exodus"),
+        new("Bob Smith", "Ultros"),
+        new("Bob Jones", "Cactuar"),
+        new("Nova Ral'veth", "Ultros"),
+    ];
+    Assert(FollowParser.FindNearby(new("nova ral'veth", "Exodus"), nearby) == 0 &&
+           FollowParser.FindNearby(new("Nova Ral'veth", "Ultros"), nearby) == 3,
+        "a full name and world should find that exact player, ignoring case");
+    Assert(FollowParser.FindNearby(new("Bob Smith", ""), nearby) == 1, "a full name without a world should find the player");
+    Assert(FollowParser.FindNearby(new("Bob", ""), nearby) == -1, "a first name two players share is ambiguous");
+    Assert(FollowParser.FindNearby(new("Nova Ral'veth", "Cactuar"), nearby) == -1, "the wrong world should not match");
+    Assert(FollowParser.FindNearby(new("Nova", ""), [new("Nova Ral'veth", "Exodus"), new("Bob Smith", "Ultros")]) == 0,
+        "a first name only one nearby player has should find them");
+    Assert(FollowParser.FindNearby(new("Nobody", ""), nearby) == -1 && FollowParser.FindNearby(new("", ""), nearby) == -1,
+        "nobody nearby means no match");
+
+    var nova = new PlayerName("Nova Ral'veth", "Exodus");
+    Assert(FollowParser.MayFollow(nova, [], []), "with empty lists anyone may be followed");
+    Assert(!FollowParser.MayFollow(nova, [], ["nova ral'veth"]), "the never list should block, on any world for a bare name");
+    Assert(!FollowParser.MayFollow(nova, ["Bob Smith"], []) && FollowParser.MayFollow(nova, ["Nova Ral'veth@Exodus"], []),
+        "when the only list has names, only they may be followed");
+    Assert(!FollowParser.MayFollow(nova, ["Nova Ral'veth"], ["Nova Ral'veth@Exodus"]), "never beats only");
+
+    Assert(FollowParser.FormatReply("uwu I'm sorry master I don't see <target> near me :c", "Nova") ==
+           "uwu I'm sorry master I don't see Nova near me :c", "<target> should become the requested name");
+    Assert(FollowParser.FormatReply("I don't see <TARGET>", "<pos>\uFF1Cflag\uFF1E") == "I don't see posflag",
+        "a requested name can't carry a game placeholder into the reply");
+
+    var config = new Configuration();
+    Assert(!config.Follow.Enabled && config.Follow.FollowWords == "follow" && config.Follow.StopWords == "stop" &&
+           config.Follow.Channels.SequenceEqual([13, 14, 24]) && !config.Follow.Senders.Anyone && config.Follow.StopMoves,
+        "Follow mode should start off, with safe defaults");
+    var shrunk = new Configuration();
+    shrunk.Follow.Channels = [13];
+    Assert(DalamudJson.Load(DalamudJson.Save(shrunk)).Follow.Channels.SequenceEqual([13]),
+        "follow channels should load back exactly as saved");
+    var broken = new Configuration { Follow = null! };
+    ConfigurationMigrator.MigrateAndNormalize(broken);
+    Assert(broken.Follow != null && broken.Follow.Channels != null, "a missing follow section should be repaired");
+
+    Console.WriteLine("PASS follow mode");
 }

@@ -11,6 +11,7 @@ internal enum Page
 {
     Reactions,
     EmoteReplies,
+    Follow,
     Activity,
     Logs,
     Settings,
@@ -89,6 +90,7 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
     {
         Page.Reactions => SelectedReaction is { } reaction ? DisplayName(reaction) : "Triggers",
         Page.EmoteReplies => "Emote replies",
+        Page.Follow => "Follow mode",
         Page.Activity => "Activity",
         Page.Logs => "Message log",
         _ => "Settings",
@@ -110,6 +112,9 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
         if (W.NavRow("emotes", FontAwesomeIcon.Smile, "Emote replies", page == Page.EmoteReplies,
                      Config.EmoteReplies.Enabled ? "On" : "Off"))
             page = Page.EmoteReplies;
+        var followSubtitle = !Config.Follow.Enabled ? "Off" : FollowMode.Following is { } following ? $"Following {following}" : "On";
+        if (W.NavRow("follow", FontAwesomeIcon.Walking, "Follow mode", page == Page.Follow, followSubtitle))
+            page = Page.Follow;
         var running = activity.Active.Length;
         var waiting = activity.Queued.Length;
         var activitySubtitle = running > 0 ? $"{running} running" : waiting > 0 ? $"{waiting} waiting" : "Idle";
@@ -174,6 +179,9 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
                 break;
             case Page.EmoteReplies:
                 DrawEmoteRepliesPage();
+                break;
+            case Page.Follow:
+                DrawFollowPage();
                 break;
             case Page.Activity:
                 DrawActivityPage();

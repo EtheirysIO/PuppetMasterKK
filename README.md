@@ -20,6 +20,7 @@ PuppetMasterKK lets trusted chat messages boss your character around. A matching
 - Ignore repeated requests, save them for later, keep only the newest, or react again immediately.
 - Run several command lines with short waits between them.
 - Answer emotes aimed at you with the same emote (formerly the Right Back At You plugin).
+- Follow whoever asks ("Ami follow"), or the player they name, and stop everything on request ("Ami stop").
 - Show incoming messages, what's running and waiting, and recent activity inside the plugin.
 
 ## Useful commands
@@ -34,29 +35,29 @@ PuppetMasterKK lets trusted chat messages boss your character around. A matching
 ```
 
 There can be only one: PuppetMasterKK replaces Puppet Master and Right Back At You, warns you if another puppet-master
-plugin is loaded, and brings your Puppet Master reactions over on its first start.
+plugin is loaded, and brings your Puppet Master triggers over on its first start.
 
 > [!CAUTION]
-> PuppetMasterKK can run text commands on your character. Choose who can trigger each reaction, use specific phrases and trusted channels, and allow only the commands you need.
+> PuppetMasterKK can run text commands on your character. Choose who can set off each trigger, use specific phrases and trusted channels, and allow only the commands you need.
 
 ## A brief history
 
 PuppetMasterKK continues DodingDaga's Puppet Master. Puppet Master started as a simple way for friends to sync emotes through chat. One `please dance` message in Free Company chat could make every online FC member using Puppet Master dance together, wherever they were in the game.
 
-Over time, it grew beyond emotes. Reactions gained support for other text commands, several command lines, custom chat channels, and waits between steps.
+Over time, it grew beyond emotes. Triggers gained support for other text commands, several command lines, custom chat channels, and waits between steps.
 
-Today, each reaction can have its own trigger, senders, allowed commands, channels, cooldown, and repeat behavior. Right Back At You's emote replies now live inside PuppetMasterKK too. The message log, notifications, and the Activity page make it easier to set reactions up and see what they are doing.
+Today, each trigger can have its own phrase, senders, allowed commands, channels, cooldown, and repeat behavior. Right Back At You's emote replies now live inside PuppetMasterKK too. The message log, notifications, and the Activity page make it easier to set triggers up and see what they are doing.
 
 ## What's next
 
 These are ideas, not promises. Plans may change as they are tested.
 
-- Group selected reactions so they take turns instead of overlapping.
-- Export a reaction as a share code that another user can review before enabling.
+- Group selected triggers so they take turns instead of overlapping.
+- Export a trigger as a share code that another user can review before enabling.
 - Preview matches and waiting activity without sending commands to the game.
 - Show clearer counts for ignored, replaced, or discarded requests.
 - Add different behavior for each person sending requests.
-- Let reactions choose from approved alternatives or run a final action when their work is done.
+- Let triggers choose from approved alternatives or run a final action when their work is done.
 
 ## Building
 
@@ -70,7 +71,7 @@ The UI comes from the phys1ksUI kit, compiled in as source: it must sit next to 
 
 | Folder | What's in it |
 | --- | --- |
-| `PuppetMasterKK` | The plugin: `Chat` (matching, sender and command rules, running reactions), `Config` (settings and upgrades), `Emotes` (emote replies), `Diagnostics` (message log, activity), `UI` (the window). |
+| `PuppetMasterKK` | The plugin: `Chat` (matching, sender and command rules, running triggers), `Config` (settings and upgrades), `Emotes` (emote replies), `Diagnostics` (message log, activity), `UI` (the window). |
 | `PuppetMasterKK.Tests` | A console test runner for everything that doesn't need the game, with sample old configs in `TestConfigs`. |
 | `lib/ECommons` | ECommons (git submodule). |
 | `docs` | The user guide. |

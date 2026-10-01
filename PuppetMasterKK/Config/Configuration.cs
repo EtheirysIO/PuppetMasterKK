@@ -110,6 +110,34 @@ namespace PuppetMasterKK
         public const int MinimumCooldownSeconds = 3;
     }
 
+    // Follow mode: "<call name> <follow word> [player]" makes you target that player (or the sender) and /follow them;
+    // "<call name> <stop word>" stops everything.
+    public class FollowSettings
+    {
+        public const string TargetPlaceholder = "<target>";
+
+        public bool Enabled { get; set; } = false;
+        // "|" separates alternatives, like a trigger phrase.
+        public string CallNames { get; set; } = string.Empty;
+        public string FollowWords { get; set; } = "follow";
+        public string StopWords { get; set; } = "stop";
+        // Tell, Party, Free Company.
+        [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
+        public List<int> Channels { get; set; } = [13, 14, 24];
+        public SenderFilter Senders { get; set; } = new();
+        // Never take a request from these ("Name@World" or "Name"), whatever Senders allows.
+        public List<string> NeverFrom { get; set; } = [];
+        // When anyone is listed, only they are followed.
+        public List<string> OnlyFollow { get; set; } = [];
+        public List<string> NeverFollow { get; set; } = [];
+        public bool ReplyWhenNotNearby { get; set; } = true;
+        public string NotNearbyMessage { get; set; } = "Sorry, I don't see <target> near me.";
+        // Stop takes one tiny automove step: moving is what ends following, emote loops, sitting and lying down.
+        public bool StopMoves { get; set; } = true;
+        // Extra commands run on stop (in order, after the step).
+        public List<string> StopCommands { get; set; } = [];
+    }
+
     [Serializable]
     public class Configuration : IPluginConfiguration
     {
@@ -147,6 +175,7 @@ namespace PuppetMasterKK
         // Your own chat lines never trigger reactions (stops a reaction from re-triggering itself).
         public bool IgnoreOwnMessages { get; set; } = true;
         public EmoteReplySettings EmoteReplies { get; set; } = new();
+        public FollowSettings Follow { get; set; } = new();
         // Set once the old Right Back At You settings have been looked for, so they're imported only once.
         public bool CopycatImportChecked { get; set; } = false;
         // Set once the old Puppet Master's settings have been looked for, so they're imported at most once.

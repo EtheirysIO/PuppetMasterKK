@@ -171,6 +171,24 @@ public static class ConfigurationMigrator
             configuration.EmoteReplies.BlockedEmotes = [];
             changed = true;
         }
+        if (configuration.Follow == null)
+        {
+            configuration.Follow = new FollowSettings();
+            changed = true;
+        }
+        var follow = configuration.Follow;
+        if (follow.CallNames == null) { follow.CallNames = string.Empty; changed = true; }
+        if (follow.FollowWords == null) { follow.FollowWords = "follow"; changed = true; }
+        if (follow.StopWords == null) { follow.StopWords = "stop"; changed = true; }
+        if (follow.NotNearbyMessage == null) { follow.NotNearbyMessage = string.Empty; changed = true; }
+        if (follow.Channels == null) { follow.Channels = []; changed = true; }
+        if (follow.Senders == null) { follow.Senders = new SenderFilter(); changed = true; }
+        if (follow.Senders.Named == null) { follow.Senders.Named = []; changed = true; }
+        if (follow.NeverFrom == null) { follow.NeverFrom = []; changed = true; }
+        if (follow.OnlyFollow == null) { follow.OnlyFollow = []; changed = true; }
+        if (follow.NeverFollow == null) { follow.NeverFollow = []; changed = true; }
+        if (follow.StopCommands == null) { follow.StopCommands = []; changed = true; }
+        changed |= DeduplicateChannels(follow.Channels);
         changed |= NormalizeCustomChannels(configuration.CustomChannels);
         changed |= DeduplicateCommands(configuration.DefaultCommandWhitelist);
         changed |= DeduplicateCommands(configuration.DefaultCommandBlacklist);
