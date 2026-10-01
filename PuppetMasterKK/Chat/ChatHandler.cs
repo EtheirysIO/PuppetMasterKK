@@ -1,7 +1,6 @@
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Utility;
-using ECommons.Automation;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
@@ -354,7 +353,7 @@ namespace PuppetMasterKK
                                         return;
                                     try
                                 {
-                                        Chat.SendMessage(textCommand.ToString());
+                                        GameChat.Send(textCommand.ToString());
                                     }
                                     catch (Exception ex)
                                     {

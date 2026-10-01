@@ -1,6 +1,5 @@
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.ClientState.Objects.SubKinds;
-using ECommons.Automation;
 using System;
 using System.Diagnostics;
 
@@ -107,7 +106,7 @@ internal static class MimicMode
             else
                 Service.TargetManager.Target = Service.ObjectTable.SearchById(targetId);
 
-            Chat.SendMessage(CommandPolicy.EmoteLine(command, settings.MotionOnly));
+            GameChat.Send(CommandPolicy.EmoteLine(command, settings.MotionOnly));
         }
         catch (Exception ex)
         {

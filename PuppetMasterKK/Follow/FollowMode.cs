@@ -1,7 +1,6 @@
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
-using ECommons.Automation;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -356,7 +355,7 @@ internal static class FollowMode
     {
         try
         {
-            Chat.SendMessage(line);
+            GameChat.Send(line);
             return true;
         }
         catch (Exception ex)

@@ -1,7 +1,6 @@
 using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Hooking;
-using ECommons.Automation;
 using Lumina.Excel.Sheets;
 using System;
 using System.Diagnostics;
@@ -143,7 +142,7 @@ internal sealed class EmoteReplies : IDisposable
 
             if (settings.TargetBack)
                 Service.TargetManager.Target = instigator;
-            Chat.SendMessage(CommandPolicy.EmoteLine(command, settings.MotionOnly));
+            GameChat.Send(CommandPolicy.EmoteLine(command, settings.MotionOnly));
             RepliesSent++;
         }
         catch (Exception ex)

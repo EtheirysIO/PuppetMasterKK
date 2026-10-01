@@ -5,7 +5,6 @@ using Dalamud.Plugin;
 using System;
 using System.Collections.Generic;
 
-using ECommons;
 using PuppetMasterKK.UI;
 
 namespace PuppetMasterKK
@@ -25,7 +24,6 @@ namespace PuppetMasterKK
         private bool logoutSubscribed;
         private bool uiSubscribed;
         private bool chatHandlerStarted;
-        private bool ecommonsInitialized;
         private bool kitInitialized;
         private bool pluginsWatched;
         private static readonly HashSet<string> WarnedRivals = new(StringComparer.OrdinalIgnoreCase);
@@ -36,11 +34,6 @@ namespace PuppetMasterKK
             {
                 pluginInterface.Create<Service>();
                 Service.plugin = this;
-
-                // ECommons first (its convention), with no optional modules: Chat.SendMessage needs none of them, and
-                // Module.All would install object-life hooks and Dalamud reflection that can break on a game patch.
-                ECommonsMain.Init(pluginInterface, this);
-                ecommonsInitialized = true;
 
                 Service.InitializeConfig();
                 Service.InitializeCommands();
@@ -158,11 +151,6 @@ namespace PuppetMasterKK
             {
                 Safe(phys1ksUI.Kit.Dispose);
                 kitInitialized = false;
-            }
-            if (ecommonsInitialized)
-            {
-                Safe(ECommonsMain.Dispose);
-                ecommonsInitialized = false;
             }
             Service.plugin = null;
             Service.configuration = null;
