@@ -250,8 +250,19 @@ This also clears waiting requests. **Cancel** in the sidebar stops every trigger
 - **Channels** picks where it listens (Tell, Party and Free Company to start). **Who can trigger it** works as it does for triggers, and **Never take requests from** blocks people outright.
 - **Who you'll follow**: when **Only follow** has names, only they are followed; **Never follow** always wins.
 - `Ami stop` stops every trigger (running or waiting). With **Also stand still** on, it takes one tiny `/automove` step, which ends following, emote loops, sitting and lying down, leaving you standing. **Then run** adds your own commands after that.
-- **Mimic**: `Ami mimic me` (or `Ami mimic Nova`) makes you copy that player's emotes until the stop word. When they emote at someone, you target the same person and do the same emote; when they emote at you, you emote back at them; when they emote at nobody, you clear your target and emote too. Only emotes are copied, only from a player close enough to see, and not during combat. **Mimic word** (`mimic`) can be changed; leave it empty to turn mimicking off. **Hide emote text** is on to start. If two players mimic each other, the same emote coming straight back within 3 seconds isn't copied again, so they don't loop.
 - A line Follow mode takes isn't also matched by your triggers.
+
+## Mimic
+
+**Mimic** (its own page) lets someone you trust make you copy a player's emotes.
+
+- `Ami mimic me` copies whoever said it; `Ami mimic Nova Ral'veth@Exodus` (or `Ami mimic Nova`, when only one Nova is nearby) copies that player. `Ami mimic` on its own names nobody, so it's ignored. `Ami stop` stops mimicking (if Follow mode uses the same call name and stop word, its stop stops everything).
+- When they emote at someone, you target the same person and do the same emote; when they emote at you, you emote back at them; when they emote at nobody, you clear your target and emote too. Only emotes are copied, only from a player close enough to see, and not during combat.
+- **Call name**, **Mimic word** and **Stop word** are Mimic's own. **Channels**, **Who can trigger it** and **Never take requests from** decide who can start and stop it. **Who you'll mimic** has **Only mimic** and **Never mimic**, for when you're told to mimic someone else.
+- **Wait before copying** (off to start) copies each emote up to 10 seconds after they do it.
+- **Skip the same emote repeated quickly** (on, 3 seconds) doesn't copy the same emote again if it comes back that soon, so two players mimicking each other don't loop. Turn it off to copy every repeat.
+- **Hide emote text** is on to start, and **When the player isn't nearby** can reply by tell, as in Follow mode.
+- Settings from before Mimic had its own page start as copies of Follow mode's.
 
 ## Emote replies
 

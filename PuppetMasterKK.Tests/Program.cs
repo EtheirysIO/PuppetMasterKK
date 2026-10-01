@@ -1392,6 +1392,20 @@ static void RunFollowTests()
         "Follow mode should start off, with safe defaults");
     static bool FullyProtected(ProtectionSettings p) =>
         p.Chat && p.Risky && p.Plugins && p.OpenChat.Count == 0 && p.OpenRisky.Count == 0 && p.OpenPlugins.Count == 0;
+    {
+        var v4 = DalamudJson.Load("{\"Version\": 4, \"Reactions\": [{}], \"Follow\": {\"Enabled\": true, \"CallNames\": \"Ami\", " +
+                                  "\"MimicWords\": \"copy\", \"MimicMotionOnly\": false, \"Channels\": [13], \"OnlyFollow\": [\"Nova\"]}}");
+        ConfigurationMigrator.MigrateAndNormalize(v4);
+        var moved = v4.Mimic;
+        Assert(v4.Version == 5 && moved.Enabled && moved.CallNames == "Ami" && moved.MimicWords == "copy" && !moved.MotionOnly &&
+               moved.Channels.SequenceEqual([13]) && moved.OnlyMimic.SequenceEqual(["Nova"]) && moved.DelaySeconds == 0f &&
+               moved.RepeatGuardSeconds == 3f && v4.Follow.MimicWords == null &&
+               !Newtonsoft.Json.JsonConvert.SerializeObject(v4.Follow).Contains("MimicWords"),
+            "v4's mimic settings (inside Follow mode) should move to their own settings, starting as copies of Follow mode's");
+        var fresh = new Configuration();
+        Assert(!fresh.Mimic.Enabled && fresh.Mimic.MimicWords == "mimic" && fresh.Mimic.DelaySeconds == 0f,
+            "Mimic should start off, with no delay");
+    }
     var loaded = DalamudJson.Load("{\"Version\": 4, \"Reactions\": [{}, {\"Protections\": null}]}");
     ConfigurationMigrator.MigrateAndNormalize(loaded);
     Assert(FullyProtected(Reaction.CreateDefault().Protections) && !Reaction.CreateDefault().NoProtections &&

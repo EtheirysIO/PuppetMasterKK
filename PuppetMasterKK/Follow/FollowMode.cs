@@ -36,17 +36,48 @@ internal static class FollowMode
         Following = null;
     }
 
-    // True when the line was a follow request Follow mode took (the triggers then leave it alone).
+    // True when the line was a follow or mimic request one of the modes took (the triggers then leave it alone).
     public static bool TryHandle(XivChatType type, SeString sender, SeString message)
     {
         var configuration = Service.configuration;
-        var settings = configuration?.Follow;
-        if (configuration == null || settings == null || !settings.Enabled || !settings.Channels.Contains((int)type))
+        if (configuration == null)
+            return false;
+        var text = ReactionCommandMatcher.SanitizeIncoming(message.ToString());
+        return TryHandleFollow(configuration, type, sender, message, text) || TryHandleMimic(configuration, type, sender, message, text);
+    }
+
+    private static bool TryHandleMimic(Configuration configuration, XivChatType type, SeString sender, SeString message, string text)
+    {
+        var settings = configuration.Mimic;
+        if (settings == null || !settings.Enabled || !settings.Channels.Contains((int)type))
+            return false;
+        var request = FollowParser.Parse(text, settings.CallNames, string.Empty, settings.StopWords, string.Empty, settings.MimicWords);
+        if (request.Kind == FollowRequestKind.None)
             return false;
 
-        var text = ReactionCommandMatcher.SanitizeIncoming(message.ToString());
-        var request = FollowParser.Parse(text, settings.CallNames, settings.FollowWords, settings.StopWords, settings.ComeWords,
-                                         settings.MimicWords);
+        var who = SenderResolver.FromChat(type, sender, message);
+        if (who.IsSelf && configuration.IgnoreOwnMessages)
+            return false;
+        if (!settings.Senders.Allows(who) || SenderFilter.MatchesNamed(settings.NeverFrom, who))
+        {
+            Service.PluginLog.Debug("Mimic request from {Sender} ignored: not allowed.", who.Name);
+            return false;
+        }
+
+        if (request.Kind == FollowRequestKind.Stop)
+            MimicMode.Stop();
+        else
+            Mimic(who, request.Target, settings);
+        return true;
+    }
+
+    private static bool TryHandleFollow(Configuration configuration, XivChatType type, SeString sender, SeString message, string text)
+    {
+        var settings = configuration.Follow;
+        if (settings == null || !settings.Enabled || !settings.Channels.Contains((int)type))
+            return false;
+
+        var request = FollowParser.Parse(text, settings.CallNames, settings.FollowWords, settings.StopWords, settings.ComeWords);
         if (request.Kind == FollowRequestKind.None)
             return false;
 
@@ -61,8 +92,6 @@ internal static class FollowMode
 
         if (request.Kind == FollowRequestKind.Stop)
             Stop(who, settings);
-        else if (request.Kind == FollowRequestKind.Mimic)
-            Mimic(who, request.Target, settings);
         else
             Follow(who, request.Target, settings);
         return true;
@@ -117,7 +146,7 @@ internal static class FollowMode
     }
 
     // "Ami mimic me" / "Ami mimic Nova": from now on, copy that player's emotes.
-    private static void Mimic(SenderInfo who, string targetText, FollowSettings settings)
+    private static void Mimic(SenderInfo who, string targetText, MimicSettings settings)
     {
         PlayerName leader;
         if (targetText.Length == 0)
@@ -137,16 +166,16 @@ internal static class FollowMode
             var index = FollowParser.FindNearby(FollowParser.SplitName(targetText), names);
             if (index < 0)
             {
-                ReplyNotNearby(who, targetText, settings);
+                ReplyNotNearby(who, targetText, settings.ReplyWhenNotNearby, settings.NotNearbyMessage);
                 return;
             }
             leader = candidates[index].Name;
         }
         if (leader.Name.Length == 0)
             return;
-        if (!FollowParser.MayFollow(leader, settings.OnlyFollow, settings.NeverFollow))
+        if (!FollowParser.MayFollow(leader, settings.OnlyMimic, settings.NeverMimic))
         {
-            Service.PluginLog.Information("Not mimicking {Leader}: blocked by the follow lists.", leader.Name);
+            Service.PluginLog.Information("Not mimicking {Leader}: blocked by the mimic lists.", leader.Name);
             return;
         }
         MimicMode.Start(leader);
@@ -225,15 +254,18 @@ internal static class FollowMode
         }
     }
 
-    private static void ReplyNotNearby(SenderInfo who, string shownName, FollowSettings settings)
+    private static void ReplyNotNearby(SenderInfo who, string shownName, FollowSettings settings) =>
+        ReplyNotNearby(who, shownName, settings.ReplyWhenNotNearby, settings.NotNearbyMessage);
+
+    private static void ReplyNotNearby(SenderInfo who, string shownName, bool enabled, string template)
     {
-        if (!settings.ReplyWhenNotNearby || who.IsSelf || who.Name.Length == 0 || who.World.Length == 0)
+        if (!enabled || who.IsSelf || who.Name.Length == 0 || who.World.Length == 0)
             return;
         var now = Stopwatch.GetTimestamp();
         var key = $"{who.Name}@{who.World}";
         if (NextReply.TryGetValue(key, out var allowedAt) && now < allowedAt)
             return;
-        var reply = FollowParser.FormatReply(settings.NotNearbyMessage, shownName);
+        var reply = FollowParser.FormatReply(template, shownName);
         if (reply.Length == 0 || !CommandRateLimiter.Shared.TryAcquire(now))
             return;
         NextReply[key] = now + ReplyCooldown;

@@ -12,6 +12,7 @@ internal enum Page
     Reactions,
     EmoteReplies,
     Follow,
+    Mimic,
     Activity,
     Logs,
     Settings,
@@ -91,6 +92,7 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
         Page.Reactions => SelectedReaction is { } reaction ? DisplayName(reaction) : "Triggers",
         Page.EmoteReplies => "Emote replies",
         Page.Follow => "Follow mode",
+        Page.Mimic => "Mimic",
         Page.Activity => "Activity",
         Page.Logs => "Message log",
         _ => "Settings",
@@ -114,9 +116,12 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
             page = Page.EmoteReplies;
         var followSubtitle = !Config.Follow.Enabled ? "Off" : FollowMode.Following is { } following
             ? (FollowNavigator.IsWalking ? $"Walking to {following}" : $"Following {following}")
-            : MimicMode.Leader is { } mimicked ? $"Mimicking {mimicked.Name}" : "On";
+            : "On";
         if (W.NavRow("follow", FontAwesomeIcon.Walking, "Follow mode", page == Page.Follow, followSubtitle))
             page = Page.Follow;
+        var mimicSubtitle = !Config.Mimic.Enabled ? "Off" : MimicMode.Leader is { } mimicked ? $"Mimicking {mimicked.Name}" : "On";
+        if (W.NavRow("mimic", FontAwesomeIcon.Clone, "Mimic", page == Page.Mimic, mimicSubtitle))
+            page = Page.Mimic;
         var running = activity.Active.Length;
         var waiting = activity.Queued.Length;
         var activitySubtitle = running > 0 ? $"{running} running" : waiting > 0 ? $"{waiting} waiting" : "Idle";
@@ -184,6 +189,9 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
                 break;
             case Page.Follow:
                 DrawFollowPage();
+                break;
+            case Page.Mimic:
+                DrawMimicPage();
                 break;
             case Page.Activity:
                 DrawActivityPage();

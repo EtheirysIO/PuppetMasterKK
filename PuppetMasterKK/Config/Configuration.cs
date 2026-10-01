@@ -25,7 +25,7 @@ namespace PuppetMasterKK
 
     public class ConfigVersion
     {
-        public const int CURRENT = 4;
+        public const int CURRENT = 5;
     }
 
     public class ChannelSetting
@@ -130,6 +130,35 @@ namespace PuppetMasterKK
         public const int MinimumCooldownSeconds = 3;
     }
 
+    // Mimic mode: "<call name> <mimic word> <player|me>" makes you copy that player's emotes, aimed at whoever they aim
+    // them at, until "<call name> <stop word>".
+    public class MimicSettings
+    {
+        public bool Enabled { get; set; } = false;
+        public string CallNames { get; set; } = string.Empty;
+        public string MimicWords { get; set; } = "mimic";
+        public string StopWords { get; set; } = "stop";
+        // Tell, Party, Free Company.
+        [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
+        public List<int> Channels { get; set; } = [13, 14, 24];
+        // Who can start (and stop) mimicking.
+        public SenderFilter Senders { get; set; } = new();
+        public List<string> NeverFrom { get; set; } = [];
+        // Who you'll mimic: when anyone is listed, only them; never the second list.
+        public List<string> OnlyMimic { get; set; } = [];
+        public List<string> NeverMimic { get; set; } = [];
+        public bool MotionOnly { get; set; } = true;
+        // Wait this long after the leader's emote before copying it (0: right away).
+        public float DelaySeconds { get; set; } = 0f;
+        // The same emote coming back this soon isn't copied again, so two players mimicking each other don't loop
+        // (0: off).
+        public float RepeatGuardSeconds { get; set; } = 3f;
+        public bool ReplyWhenNotNearby { get; set; } = true;
+        public string NotNearbyMessage { get; set; } = "Sorry, I don't see <target> near me.";
+
+        public const float MaxDelaySeconds = 10f;
+    }
+
     public class EmoteOverride
     {
         public string When { get; set; } = string.Empty;
@@ -151,9 +180,11 @@ namespace PuppetMasterKK
         public string ComeWords { get; set; } = "come";
         // When the player is in the zone but too far to follow, walk to them with vnavmesh first (when it's loaded).
         public bool WalkWithVnavmesh { get; set; } = true;
-        // "Ami mimic me": copy that player's emotes, aimed at whoever they aim them at, until the stop word.
-        public string MimicWords { get; set; } = "mimic";
-        public bool MimicMotionOnly { get; set; } = true;
+        // Before v5, mimic lived here. Read once to move it to MimicSettings, never written again.
+        public string? MimicWords { get; set; }
+        public bool? MimicMotionOnly { get; set; }
+        public bool ShouldSerializeMimicWords() => false;
+        public bool ShouldSerializeMimicMotionOnly() => false;
         // Tell, Party, Free Company.
         [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
         public List<int> Channels { get; set; } = [13, 14, 24];
@@ -210,6 +241,7 @@ namespace PuppetMasterKK
         public bool IgnoreOwnMessages { get; set; } = true;
         public EmoteReplySettings EmoteReplies { get; set; } = new();
         public FollowSettings Follow { get; set; } = new();
+        public MimicSettings Mimic { get; set; } = new();
         // Set once the old Right Back At You settings have been looked for, so they're imported only once.
         public bool CopycatImportChecked { get; set; } = false;
         // Set once the old Puppet Master's settings have been looked for, so they're imported at most once.

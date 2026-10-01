@@ -114,39 +114,6 @@ internal sealed partial class MainWindow
                 Changed();
         }
 
-        var mimicCall = $"{FirstAlternative(settings.CallNames, "Ami")} {FirstAlternative(settings.MimicWords, "mimic")}";
-        using (W.Card("mimic", "Mimic", MimicMode.Leader is { } leader ? $"Mimicking {leader.Name}" : $"\"{mimicCall} me\""))
-        {
-            W.TextWrapped($"\"{mimicCall} me\" (or \"{mimicCall} Nova\") makes you copy that player's emotes until the stop word. " +
-                          "When they emote at someone, you emote at the same person; when they emote at you, you emote back " +
-                          "at them; when they emote at nobody, so do you.", Theme.Dim);
-            Gap();
-            Label("Mimic word");
-            var mimicWords = settings.MimicWords;
-            if (W.TextInput("##mimicWords", ref mimicWords, "mimic", 0f, 200))
-            {
-                settings.MimicWords = mimicWords;
-                Changed();
-            }
-            Hint("Leave it empty to turn mimicking off.");
-            Gap(2f);
-            var mimicMotion = settings.MimicMotionOnly;
-            if (W.Toggle("Hide emote text##mimicMotionOnly", ref mimicMotion,
-                         tooltip: "The animation still plays, but the emote message isn't posted in chat"))
-            {
-                settings.MimicMotionOnly = mimicMotion;
-                Changed();
-            }
-            Hint("Only emotes are copied, and only from a player close enough to see. Paused during combat. " +
-                 "Uses the same channels, senders and follow lists as following.");
-            if (MimicMode.IsActive)
-            {
-                Gap(2f);
-                if (W.SecondaryButton("Stop mimicking##stopMimic"))
-                    MimicMode.Stop();
-            }
-        }
-
         using (W.Card("notNearby", "When the player isn't nearby"))
         {
             var reply = settings.ReplyWhenNotNearby;

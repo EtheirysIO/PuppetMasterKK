@@ -26,6 +26,7 @@ public static class ConfigurationMigrator
                 1 => MigrateV1ToV2(configuration),
                 2 => MigrateV2ToV3(configuration),
                 3 => MigrateV3ToV4(configuration),
+                4 => MigrateV4ToV5(configuration),
                 _ => throw new InvalidOperationException(
                     $"No migration path exists from configuration v{configuration.Version}."),
             };
@@ -88,6 +89,31 @@ public static class ConfigurationMigrator
             reaction.SuppressedNotifications = ReactionNotificationSetting.Inherit;
         }
         configuration.Version = 3;
+        return true;
+    }
+
+    // Mimic gets its own settings. It used Follow mode's, so it starts with copies of them.
+    private static bool MigrateV4ToV5(Configuration configuration)
+    {
+        var follow = configuration.Follow ?? new FollowSettings();
+        var mimic = configuration.Mimic ?? new MimicSettings();
+        var words = follow.MimicWords;
+        mimic.Enabled = follow.Enabled && (words == null || !string.IsNullOrWhiteSpace(words));
+        mimic.MimicWords = string.IsNullOrWhiteSpace(words) ? "mimic" : words;
+        mimic.MotionOnly = follow.MimicMotionOnly ?? true;
+        mimic.CallNames = follow.CallNames ?? string.Empty;
+        mimic.StopWords = follow.StopWords ?? "stop";
+        mimic.Channels = follow.Channels != null ? [.. follow.Channels] : [13, 14, 24];
+        mimic.Senders = follow.Senders?.Clone() ?? new SenderFilter();
+        mimic.NeverFrom = follow.NeverFrom != null ? [.. follow.NeverFrom] : [];
+        mimic.OnlyMimic = follow.OnlyFollow != null ? [.. follow.OnlyFollow] : [];
+        mimic.NeverMimic = follow.NeverFollow != null ? [.. follow.NeverFollow] : [];
+        mimic.ReplyWhenNotNearby = follow.ReplyWhenNotNearby;
+        mimic.NotNearbyMessage = follow.NotNearbyMessage ?? mimic.NotNearbyMessage;
+        configuration.Mimic = mimic;
+        follow.MimicWords = null;
+        follow.MimicMotionOnly = null;
+        configuration.Version = 5;
         return true;
     }
 
@@ -157,6 +183,26 @@ public static class ConfigurationMigrator
             configuration.EmoteReplies.Senders = new SenderFilter();
             changed = true;
         }
+        if (configuration.Mimic == null)
+        {
+            configuration.Mimic = new MimicSettings();
+            changed = true;
+        }
+        var mimicSettings = configuration.Mimic;
+        if (mimicSettings.Channels == null) { mimicSettings.Channels = []; changed = true; }
+        if (mimicSettings.Senders == null) { mimicSettings.Senders = new SenderFilter(); changed = true; }
+        if (mimicSettings.Senders.Named == null) { mimicSettings.Senders.Named = []; changed = true; }
+        if (mimicSettings.NeverFrom == null) { mimicSettings.NeverFrom = []; changed = true; }
+        if (mimicSettings.OnlyMimic == null) { mimicSettings.OnlyMimic = []; changed = true; }
+        if (mimicSettings.NeverMimic == null) { mimicSettings.NeverMimic = []; changed = true; }
+        mimicSettings.CallNames ??= string.Empty;
+        mimicSettings.MimicWords ??= string.Empty;
+        mimicSettings.StopWords ??= string.Empty;
+        mimicSettings.NotNearbyMessage ??= string.Empty;
+        mimicSettings.DelaySeconds = float.IsFinite(mimicSettings.DelaySeconds)
+            ? System.Math.Clamp(mimicSettings.DelaySeconds, 0f, MimicSettings.MaxDelaySeconds) : 0f;
+        mimicSettings.RepeatGuardSeconds = float.IsFinite(mimicSettings.RepeatGuardSeconds)
+            ? System.Math.Clamp(mimicSettings.RepeatGuardSeconds, 0f, 30f) : 3f;
         if (configuration.EmoteReplies.Overrides == null)
         {
             configuration.EmoteReplies.Overrides = [];
