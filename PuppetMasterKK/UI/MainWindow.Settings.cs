@@ -9,7 +9,7 @@ namespace PuppetMasterKK.UI;
 
 internal sealed partial class MainWindow
 {
-    private static readonly string[] SettingsTabs = ["General", "New triggers", "Custom channels", "Appearance"];
+    private static readonly string[] SettingsTabs = ["General", "New triggers", "Custom channels", "Appearance", "About"];
     private int settingsTab;
     private string defaultAllowInput = string.Empty;
     private string defaultBlockInput = string.Empty;
@@ -39,8 +39,11 @@ internal sealed partial class MainWindow
             case 2:
                 DrawCustomChannelSettings();
                 break;
-            default:
+            case 3:
                 DrawAppearanceSettings();
+                break;
+            default:
+                DrawAbout();
                 break;
         }
     }
@@ -257,6 +260,48 @@ internal sealed partial class MainWindow
         if (Config.DefaultEnabledChannels.Remove(previous) && !Config.DefaultEnabledChannels.Contains(id))
             Config.DefaultEnabledChannels.Add(id);
         Changed();
+    }
+
+    // images\icon.png next to the dll.
+    private static readonly string IconPath = System.IO.Path.Combine(
+        Service.PluginInterface.AssemblyLocation.DirectoryName ?? string.Empty, "images", "icon.png");
+
+    private void DrawAbout()
+    {
+        using (W.Card("about", null))
+        {
+            // The icon as it is: drawn on nothing, so its transparent corners stay transparent.
+            var side = System.MathF.Min(Theme.S(192f), W.Avail());
+            if (Service.TextureProvider.GetFromFile(IconPath).TryGetWrap(out var icon, out _) && icon != null)
+            {
+                ImGui.SetCursorPosX(ImGui.GetCursorPosX() + System.MathF.Max(0f, (W.Avail() - side) * 0.5f));
+                ImGui.Image(icon.Handle, new System.Numerics.Vector2(side, side));
+            }
+
+            Gap(4f);
+            using (Fonts.Display.Push())
+                Centered("PuppetMasterKK", Theme.Ink);
+            Centered(Version, Theme.Dim);
+            Gap(8f);
+            Centered("Let others tell you what to do.", Theme.Dim);
+            Gap(8f);
+            Centered("By phys1ks, continuing DodingDaga's Puppet Master. Emote replies began as Right Back At You.", Theme.Faint);
+        }
+    }
+
+    private static void Centered(string text, System.Numerics.Vector4 color)
+    {
+        var width = ImGui.CalcTextSize(text).X;
+        var avail = W.Avail();
+        if (width < avail)
+        {
+            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + (avail - width) * 0.5f);
+            ImGui.TextColored(color, text);
+        }
+        else
+        {
+            W.TextWrapped(text, color);
+        }
     }
 
     private static void DrawAppearanceSettings()
