@@ -200,17 +200,21 @@ internal static class FollowParser
 }
 
 // "Not again before then", per key (a player's "Name@World"): emote replies, not-nearby tells. Framework thread only.
-// Expired entries are dropped once there are many, so a crowd can't grow it without end.
+// Expired entries are dropped once there are many, so a crowd can't grow it without end; past MaxEntries the one
+// ending soonest goes too.
 internal sealed class Cooldowns
 {
     private const int PruneAt = 128;
+    public const int MaxEntries = 1024;
     private readonly Dictionary<string, long> until = new(StringComparer.OrdinalIgnoreCase);
+
+    public int Count => until.Count;
 
     public bool IsWaiting(string key, long now) => until.TryGetValue(key, out var end) && now < end;
 
     public void Start(string key, long now, long duration)
     {
-        until[key] = now + duration;
+        until[key] = duration > long.MaxValue - now ? long.MaxValue : now + duration;
         if (until.Count < PruneAt)
             return;
         var expired = new List<string>();
@@ -221,6 +225,20 @@ internal sealed class Cooldowns
         }
         foreach (var entry in expired)
             until.Remove(entry);
+        while (until.Count > MaxEntries)
+        {
+            string? soonest = null;
+            var soonestEnd = long.MaxValue;
+            foreach (var (entry, end) in until)
+            {
+                if (soonest == null || end < soonestEnd)
+                {
+                    soonest = entry;
+                    soonestEnd = end;
+                }
+            }
+            until.Remove(soonest!);
+        }
     }
 
     public void Clear() => until.Clear();

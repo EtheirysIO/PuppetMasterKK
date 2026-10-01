@@ -12,6 +12,7 @@ internal sealed partial class MainWindow
     private static readonly string[] TriggerModes = ["Phrase", "Regex pattern"];
     private static readonly string[] CommandModes = ["Only listed commands", "Any game command"];
     private static readonly string[] NotificationModes = PluginUiLogic.NotificationSettingLabels;
+    private static readonly string[] FinalWhenModes = ["After every run", "When nothing is waiting"];
     private const string NameHint = "Name@World (or just Name for any world)";
 
     private int selected;
@@ -26,6 +27,7 @@ internal sealed partial class MainWindow
     private bool noProtectionsUnderstood;
     private string allowInput = string.Empty;
     private string blockInput = string.Empty;
+    private string finalInput = string.Empty;
     // What's typed in each "Also these players" box, per card (the reaction editor and Emote replies have their own).
     private readonly Dictionary<string, string> namedInputs = new();
     private long previewBuiltAt;
@@ -45,7 +47,7 @@ internal sealed partial class MainWindow
         Config.CurrentReactionEdit = index;
         if (Service.IsValidReactionIndex(index))
             Service.InitializeRegex(index);
-        allowInput = blockInput = string.Empty;
+        allowInput = blockInput = finalInput = string.Empty;
         namedInputs.Remove("reactionSenders");
         previewDirty = true;
         Changed();
@@ -254,6 +256,8 @@ internal sealed partial class MainWindow
         }
 
         DrawTriggerCard(reaction);
+        if (reaction.UseRegex)
+            DrawChoicesCard(reaction);
         DrawSendersCard("reactionSenders", reaction.Senders, () => RulesChanged(reaction),
                         PluginUiLogic.ListensToStrangers(reaction)
                             ? "Anyone in the channels you picked can trigger this, including strangers in Say, Yell, Shout and cross-world linkshells."
@@ -264,7 +268,110 @@ internal sealed partial class MainWindow
         DrawProtectionsCard(reaction);
         DrawTestCard(reaction);
         DrawTimingCard(reaction);
+        DrawFinalActionCard(reaction);
         DrawNotificationsCard(reaction);
+    }
+
+    private void DrawChoicesCard(Reaction reaction)
+    {
+        var mode = (int)reaction.ChoiceMode;
+        using (W.FoldCard("choices", "Choices", ChoiceSelector.ModeLabels[Math.Clamp(mode, 0, ChoiceSelector.ModeLabels.Length - 1)],
+                          out var open, defaultOpen: reaction.ChoiceMode != ChoiceMode.Off))
+        {
+            if (!open)
+                return;
+            if (W.Segmented("##choiceMode", ChoiceSelector.ModeLabels, ref mode, W.SegmentedWidth(ChoiceSelector.ModeLabels)))
+            {
+                reaction.ChoiceMode = (ChoiceMode)mode;
+                if (reaction.ChoiceMode != ChoiceMode.Off && reaction.Choices.Count == 0)
+                    reaction.Choices.Add(new ReactionChoice { Commands = reaction.ReplaceMatch });
+                TriggerChanged(reaction);
+            }
+            Hint(reaction.ChoiceMode switch
+            {
+                ChoiceMode.Random => "Each time, one choice runs, picked at random.",
+                ChoiceMode.InTurn => "Each time, the next choice runs, then it starts over.",
+                ChoiceMode.ByWord => "The choice whose word is the pattern's first capture ($1) runs. Any other word doesn't trigger it.",
+                _ => "Run one of several sets of commands instead of Commands to run.",
+            });
+            if (reaction.ChoiceMode == ChoiceMode.Off)
+                return;
+
+            var remove = -1;
+            for (var i = 0; i < reaction.Choices.Count; i++)
+            {
+                var choice = reaction.Choices[i];
+                ImGui.PushID(i);
+                Gap();
+                ImGui.AlignTextToFramePadding();
+                ImGui.TextColored(Theme.Dim, $"Choice {i + 1}");
+                if (reaction.ChoiceMode == ChoiceMode.ByWord)
+                {
+                    ImGui.SameLine(0f, Theme.Space.Tight);
+                    var word = choice.Word;
+                    if (W.TextInput("##word", ref word, "word", Theme.S(160f), 100, error: string.IsNullOrWhiteSpace(word)))
+                    {
+                        choice.Word = word;
+                        TriggerChanged(reaction);
+                    }
+                }
+                W.RightAlign(ImGui.GetFrameHeight());
+                if (W.IconButton(FontAwesomeIcon.Times, "##removeChoice", "Remove this choice", danger: true))
+                    remove = i;
+                var commands = choice.Commands;
+                if (W.TextArea("##commands", ref commands, 0f, 0f, "/$1", 500))
+                {
+                    choice.Commands = commands;
+                    TriggerChanged(reaction);
+                }
+                ImGui.PopID();
+            }
+            if (remove >= 0)
+            {
+                reaction.Choices.RemoveAt(remove);
+                TriggerChanged(reaction);
+            }
+
+            Gap();
+            var canAdd = reaction.Choices.Count < Reaction.MaxChoices;
+            if (W.SecondaryButton("Add choice##addChoice", enabled: canAdd,
+                                  tooltip: canAdd ? null : $"Up to {Reaction.MaxChoices} choices"))
+            {
+                reaction.Choices.Add(new ReactionChoice());
+                TriggerChanged(reaction);
+            }
+            Hint("Like Commands to run: one command per line, $1, $2… and /wait work in each.");
+        }
+    }
+
+    private void DrawFinalActionCard(Reaction reaction)
+    {
+        var count = reaction.FinalCommands.Count;
+        using (W.FoldCard("finalAction", "Final action", count == 0 ? "Off" : count == 1 ? "1 command" : $"{count} commands",
+                          out var open, defaultOpen: false))
+        {
+            if (!open)
+                return;
+            Label("When a run finishes, also run");
+            if (StringListEditor("final", reaction.FinalCommands, ref finalInput, "/command", "Nothing.",
+                                 text => PluginUiLogic.AddFinalCommand(reaction.FinalCommands, text)))
+            {
+                ChatHandler.InvalidateReaction(reaction, false);
+                previewDirty = true;
+                Changed();
+            }
+
+            Gap();
+            var when = (int)reaction.FinalWhen;
+            if (W.Segmented("##finalWhen", FinalWhenModes, ref when, W.SegmentedWidth(FinalWhenModes)))
+            {
+                reaction.FinalWhen = (FinalActionWhen)when;
+                ChatHandler.InvalidateReaction(reaction, false);
+                Changed();
+            }
+            Hint($"Up to {Reaction.MaxFinalCommands} commands, sent as written ($1 isn't filled in) and checked by Protections. " +
+                 "Never runs after Stop, a restart or turning the trigger off, and stops after 10 seconds.");
+        }
     }
 
     private void DrawTriggerCard(Reaction reaction)
@@ -303,6 +410,11 @@ internal sealed partial class MainWindow
                 W.TextWrapped("This isn't a valid regular expression.", Theme.Negative);
 
             Gap();
+            if (ChoiceSelector.IsActive(reaction))
+            {
+                Hint("The commands come from Choices.");
+                return;
+            }
             Label("Commands to run");
             var replacement = reaction.ReplaceMatch;
             if (W.TextArea("##replacement", ref replacement, 0f, 0f, "/$1", 500))
@@ -531,7 +643,11 @@ internal sealed partial class MainWindow
     }
 
     private static ReactionPreview PreviewFor(Reaction reaction, string message)
-        => PluginUiLogic.BuildPreview(reaction, message, Service.Commands.IsEmote, Service.IsCommandAllowed);
+        => PluginUiLogic.BuildPreview(reaction, message, Service.Commands.IsEmote, Service.IsCommandAllowed,
+                                      ChatHandler.GetChoiceTurn(reaction), PreviewRandom(message));
+
+    // Random choices in a preview: the same pick for the same message, so it doesn't change every refresh.
+    private static Func<int, int> PreviewRandom(string message) => count => (int)((uint)message.GetHashCode() % (uint)count);
 
     /// <summary>A preview's lines with Runs / Blocked chips (hover for why), or why there are none.</summary>
     private static void DrawPreview(ReactionPreview result, bool showMatched)
@@ -548,7 +664,21 @@ internal sealed partial class MainWindow
             return;
         }
 
-        foreach (var line in result.Lines)
+        if (result.Choice != null)
+            Hint(result.Choice);
+        DrawPreviewLines(result.Lines);
+        if (result.FinalLines.Count > 0)
+        {
+            Hint("Then the final action:");
+            DrawPreviewLines(result.FinalLines);
+        }
+        if (showMatched)
+            Hint($"Matched: {result.Matched}");
+    }
+
+    private static void DrawPreviewLines(IReadOnlyList<PreviewLine> lines)
+    {
+        foreach (var line in lines)
         {
             W.Chip(line.Allowed ? "Runs" : "Blocked", line.Allowed ? Theme.Positive : Theme.Negative, status: true);
             if (ImGui.IsItemHovered())
@@ -556,8 +686,6 @@ internal sealed partial class MainWindow
             ImGui.SameLine();
             ImGui.TextUnformatted(line.Command);
         }
-        if (showMatched)
-            Hint($"Matched: {result.Matched}");
     }
 
     /// <summary>Puts the next item (this wide) on the same line if it fits in the card, else on the next line.</summary>
@@ -599,6 +727,31 @@ internal sealed partial class MainWindow
             }
             ImGui.EndDisabled();
             Hint(PluginUiLogic.GetCooldownDescription(reaction.ExecutionPolicy));
+
+            Gap();
+            Label("Cooldown per person");
+            var perSender = reaction.PerSenderCooldownSeconds;
+            if (W.NumberInput("##perSenderCooldown", ref perSender, 0, Reaction.MaxPerSenderCooldownSeconds, 1, Theme.S(160f), "seconds"))
+            {
+                reaction.PerSenderCooldownSeconds = Math.Clamp(perSender, 0, Reaction.MaxPerSenderCooldownSeconds);
+                ChatHandler.InvalidateReaction(reaction, false);
+                Changed();
+            }
+            Hint("How long each person waits before they can trigger it again, whatever the repeat setting. 0 is off.");
+
+            Gap(2f);
+            var queueEvery = reaction.ExecutionPolicy == ReactionExecutionPolicy.QueueEveryTrigger;
+            var oneWaiting = reaction.OneWaitingPerSender;
+            if (W.Toggle("One waiting request per person##oneWaiting", ref oneWaiting, enabled: queueEvery,
+                         tooltip: queueEvery
+                             ? "A person's newer request replaces their older one that's still waiting"
+                             : "Only for Queue every trigger"))
+            {
+                reaction.OneWaitingPerSender = oneWaiting;
+                ChatHandler.InvalidateReaction(reaction, false);
+                Changed();
+            }
+            Hint("For different commands per person, duplicate the trigger and give each copy its own senders.");
         }
     }
 

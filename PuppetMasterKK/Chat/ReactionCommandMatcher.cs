@@ -44,8 +44,29 @@ internal static class ReactionCommandMatcher
         out string matchedText,
         out string? error)
     {
+        return TryGenerateCommand(pattern, message, replacement, null, 0, null, out command, out matchedText, out _, out error);
+    }
+
+    /// <summary>
+    /// As above, with Choices: when <paramref name="choices"/> is set, the chosen block (<paramref name="choice"/>) is
+    /// the replacement, and By word with an unknown word is no match. <paramref name="turn"/> is In turn's position;
+    /// <paramref name="random"/> (0..n-1) defaults to Random.Shared.
+    /// </summary>
+    public static ReactionMatchStatus TryGenerateCommand(
+        Regex? pattern,
+        string message,
+        string replacement,
+        ChoiceSet? choices,
+        int turn,
+        Func<int, int>? random,
+        out string command,
+        out string matchedText,
+        out int choice,
+        out string? error)
+    {
         command = string.Empty;
         matchedText = string.Empty;
+        choice = -1;
         error = null;
         if (pattern == null)
             return ReactionMatchStatus.NoMatch;
@@ -54,6 +75,13 @@ internal static class ReactionCommandMatcher
             var match = pattern.Match(message);
             if (!match.Success)
                 return ReactionMatchStatus.NoMatch;
+            if (choices != null)
+            {
+                choice = ChoiceSelector.Select(choices.Mode, choices.Words, match.Groups[1].Value, turn, random ?? Random.Shared.Next);
+                if (choice < 0)
+                    return ReactionMatchStatus.NoMatch;
+                replacement = choices.Commands[choice];
+            }
             matchedText = match.Value;
             command = match.Result(replacement);
             return ReactionMatchStatus.Success;

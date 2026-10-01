@@ -38,11 +38,12 @@ internal sealed class BoundedRetriggerScheduler<T>(
         }
     }
 
-    public Task? Enqueue(ReactionExecutionPolicy policy, T item, CancellationToken lifetimeToken)
+    /// <param name="replaces">Queue every: waiting requests this one takes the place of (the same sender's).</param>
+    public Task? Enqueue(ReactionExecutionPolicy policy, T item, CancellationToken lifetimeToken, Predicate<T>? replaces = null)
     {
         lock (sync)
         {
-            var dropped = queue.Enqueue(policy, item);
+            var dropped = queue.Enqueue(policy, item, replaces, out var replacedBySender);
             // Queue every drops the oldest when full; Queue latest and Restart replace what was waiting.
             if (dropped > 0)
             {
@@ -51,6 +52,8 @@ internal sealed class BoundedRetriggerScheduler<T>(
                 else
                     reportReplaced?.Invoke(dropped);
             }
+            if (replacedBySender > 0)
+                reportReplaced?.Invoke(replacedBySender);
             if (policy == ReactionExecutionPolicy.IgnoreWhileRunning || isDraining)
                 return null;
 

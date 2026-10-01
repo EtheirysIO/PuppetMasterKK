@@ -216,6 +216,25 @@ Run("PuppetMaster_v5_hostile.json", configuration =>
         "a huge delay and a negative repeat guard should be clamped");
 });
 
+// Per-person limits, choices and final actions from a hand-edited (or hostile) file.
+Run("PuppetMaster_v6_hostile.json", configuration =>
+{
+    var first = configuration.Reactions[0];
+    Assert(first.PerSenderCooldownSeconds == Reaction.MaxPerSenderCooldownSeconds && first.OneWaitingPerSender,
+        "a huge per-person cooldown should be clamped");
+    Assert(first.ChoiceMode == ChoiceMode.Off, "an unknown choice mode should be turned off");
+    Assert(first.Choices.Count == Reaction.MaxChoices && first.Choices.All(choice => choice.Word != null && choice.Commands != null) &&
+           first.Choices[1] is { Word: "hug", Commands: "/hug" } && first.Choices[1].GetType() == typeof(ReactionChoice),
+        "null choices should be dropped, null text repaired, \"$type\" ignored and the list cut to the limit");
+    Assert(first.FinalCommands.SequenceEqual(["/echo one", "/echo three", "/echo four", "/echo five", "/echo six"]),
+        "blank and multi-line final lines should be dropped, and at most five kept");
+    Assert(first.FinalWhen == FinalActionWhen.AfterEachRun, "an unknown final-action timing should be reset");
+    var second = configuration.Reactions[1];
+    Assert(second.PerSenderCooldownSeconds == 0 && second.Choices.Count == 0 && second.FinalCommands.Count == 0 &&
+           second.FinalWhen == FinalActionWhen.WhenNothingWaiting && !ChoiceSelector.IsActive(second),
+        "null lists should be repaired, and By word with no choices does nothing");
+});
+
 var future = new Configuration { Version = ConfigVersion.CURRENT + 1 };
 AssertThrows<InvalidOperationException>(() => ConfigurationMigrator.MigrateAndNormalize(future), "future config should be rejected");
 
@@ -240,6 +259,10 @@ RunCommandPolicyBypassTests();
 RunHostileCaptureTests();
 RunHostileConfigTests();
 RunHostileFollowTests();
+RunPerSenderLimitTests();
+RunChoiceTests();
+RunFinalActionTests();
+RunV6MigrationTests();
 
 Console.WriteLine("All PuppetMasterKK tests passed.");
 return;
@@ -1679,7 +1702,7 @@ static void RunFollowTests()
                                   "\"MimicWords\": \"copy\", \"MimicMotionOnly\": false, \"Channels\": [13], \"OnlyFollow\": [\"Nova\"]}}");
         ConfigurationMigrator.MigrateAndNormalize(v4);
         var moved = v4.Mimic;
-        Assert(v4.Version == 5 && moved.Enabled && moved.CallNames == "Ami" && moved.MimicWords == "copy" && !moved.MotionOnly &&
+        Assert(v4.Version == ConfigVersion.CURRENT && moved.Enabled && moved.CallNames == "Ami" && moved.MimicWords == "copy" && !moved.MotionOnly &&
                moved.Channels.SequenceEqual([13]) && moved.OnlyMimic.SequenceEqual(["Nova"]) && moved.DelaySeconds == 0f &&
                moved.RepeatGuardSeconds == 3f && v4.Follow.MimicWords == null &&
                !Newtonsoft.Json.JsonConvert.SerializeObject(v4.Follow).Contains("MimicWords"),
@@ -1983,4 +2006,265 @@ static void RunHostileFollowTests()
         "a full name two nearby players share (on different worlds) is ambiguous: the sender has to name the world");
 
     Console.WriteLine("PASS hostile follow requests");
+}
+
+static void RunPerSenderLimitTests()
+{
+    // Per-person cooldowns: by "Name@World", case-insensitive; everyone without a name shares one.
+    var cooldowns = new SenderCooldowns();
+    var nova = SenderCooldowns.KeyFor(new SenderInfo("Nova Ral'veth", "Exodus", false, true, false, false));
+    var shouting = SenderCooldowns.KeyFor(new SenderInfo("NOVA RAL'VETH", "EXODUS", false, false, false, false));
+    var other = SenderCooldowns.KeyFor(new SenderInfo("Test Player", "World", false, false, false, false));
+    Assert(nova == "Nova Ral'veth@Exodus" && SenderCooldowns.KeyFor(new SenderInfo("Test Player", "", false, false, false, false)) == "Test Player",
+        "the key is Name@World, or the name when the world isn't known");
+    Assert(SenderCooldowns.KeyFor(SenderInfo.Unknown) == string.Empty, "an unknown sender has the shared empty key");
+    cooldowns.Start(nova, 1000, 500);
+    Assert(cooldowns.IsWaiting(shouting, 1200), "the cooldown should ignore case");
+    Assert(!cooldowns.IsWaiting(other, 1200), "another person isn't held up");
+    Assert(!cooldowns.IsWaiting(nova, 1500), "the cooldown ends on time");
+    cooldowns.Start(other, 0, 0);
+    Assert(!cooldowns.IsWaiting(other, 0), "a zero cooldown never starts");
+    cooldowns.Start(other, long.MaxValue - 5, long.MaxValue);
+    Assert(cooldowns.IsWaiting(other, long.MaxValue - 1), "a huge cooldown can't wrap around into the past");
+
+    // A crowd (or made-up names on a custom channel) can't grow it without end.
+    var crowd = new SenderCooldowns();
+    for (var i = 0; i < 5000; i++)
+        crowd.Start($"Test Player {i}@World", i, 1_000_000);
+    Assert(crowd.Count <= Cooldowns.MaxEntries, $"per-person cooldowns should stay bounded ({crowd.Count})");
+    Assert(crowd.IsWaiting("Test Player 4999@World", 5000), "the newest entries are kept");
+    var expiring = new SenderCooldowns();
+    for (var i = 0; i < 300; i++)
+        expiring.Start($"Test Player {i}@World", i * 10, 5);
+    Assert(expiring.Count < 300, "expired entries should be pruned");
+    expiring.Clear();
+    Assert(expiring.Count == 0, "Clear empties it");
+
+    // One waiting request per person: their newer request replaces their older one, others keep their place.
+    var queue = new BoundedRetriggerQueue<(string From, string Command)>(16);
+    queue.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, ("Nova Ral'veth@Exodus", "/wave"));
+    queue.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, ("Test Player@World", "/dance"));
+    var dropped = queue.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, ("nova ral'veth@exodus", "/cheer"),
+        item => item.From.Equals("nova ral'veth@exodus", StringComparison.OrdinalIgnoreCase), out var replaced);
+    Assert(dropped == 0 && replaced == 1 && queue.Count == 2, "the same person's waiting request should be replaced");
+    Assert(queue.TryDequeue(out var firstWaiting) && firstWaiting.Command == "/dance" &&
+           queue.TryDequeue(out var secondWaiting) && secondWaiting.Command == "/cheer",
+        "the other person keeps their place and the newer request goes to the back");
+    var full = new BoundedRetriggerQueue<string>(3);
+    foreach (var item in new[] { "a", "b", "c" })
+        full.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, item);
+    Assert(full.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, "d", item => item == "b", out var replacedInFull) == 0 &&
+           replacedInFull == 1 && full.Count == 3, "replacing makes room, so nothing is dropped as overflow");
+    full.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, "e", item => item == "nobody", out var none);
+    Assert(none == 0 && full.Count == 3, "with nothing to replace, the queue still keeps its bound");
+
+    // The scheduler counts a per-person replacement as Replaced, not as overflow.
+    var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var acquiring = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var executed = new List<string>();
+    var overflow = 0;
+    var replacedCount = 0;
+    var scheduler = new BoundedRetriggerScheduler<(string From, string Command)>(
+        16,
+        async (_, token) =>
+        {
+            acquiring.TrySetResult();
+            await gate.Task.WaitAsync(token);
+            return new CancellationTokenSource();
+        },
+        (item, lease) =>
+        {
+            lease.Dispose();
+            executed.Add(item.Command);
+            return Task.CompletedTask;
+        },
+        count => overflow += count,
+        reportReplaced: count => replacedCount += count);
+    Predicate<(string From, string Command)> Same(string from) => item => item.From.Equals(from, StringComparison.OrdinalIgnoreCase);
+    var drainer = scheduler.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, ("Nova Ral'veth@Exodus", "/wave"), CancellationToken.None,
+        Same("Nova Ral'veth@Exodus"))!;
+    acquiring.Task.GetAwaiter().GetResult();
+    scheduler.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, ("Test Player@World", "/dance"), CancellationToken.None, Same("Test Player@World"));
+    scheduler.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, ("Nova Ral'veth@Exodus", "/cheer"), CancellationToken.None,
+        Same("Nova Ral'veth@Exodus"));
+    gate.TrySetResult();
+    drainer.GetAwaiter().GetResult();
+    Assert(executed.SequenceEqual(["/dance", "/cheer"]) && replacedCount == 1 && overflow == 0,
+        $"only the person's newest request should run ({string.Join(", ", executed)}; replaced {replacedCount})");
+
+    // Activity's Waiting list follows the same rule and shows who each request is from.
+    ReactionVisualizerState.Reset();
+    ReactionVisualizerState.QueuedRun(3, "Hug", "/hug 1", ReactionExecutionPolicy.QueueEveryTrigger, "Nova Ral'veth@Exodus", true);
+    ReactionVisualizerState.QueuedRun(3, "Hug", "/hug 2", ReactionExecutionPolicy.QueueEveryTrigger, "Test Player@World", true);
+    ReactionVisualizerState.QueuedRun(3, "Hug", "/hug 3", ReactionExecutionPolicy.QueueEveryTrigger, "NOVA RAL'VETH@EXODUS", true);
+    var snapshot = ReactionVisualizerState.Snapshot();
+    Assert(snapshot.Queued.Select(item => item.Command).SequenceEqual(["/hug 2", "/hug 3"]) &&
+           snapshot.Queued[0].From == "Test Player@World",
+        "Waiting should drop the person's older request and keep who sent each");
+    Assert(snapshot.Recent[0] is { Status: VisualizerRunStatus.Replaced, Command: "/hug 1" }, "the replaced request shows as Replaced");
+    ReactionVisualizerState.QueuedRun(3, "Hug", "/hug 4", ReactionExecutionPolicy.QueueEveryTrigger, "Test Player@World");
+    Assert(ReactionVisualizerState.Snapshot().Queued.Length == 3, "without the option, a person can have several waiting");
+    ReactionVisualizerState.Reset();
+
+    Console.WriteLine("PASS per-person limits");
+}
+
+static void RunChoiceTests()
+{
+    string[] words = ["hug", "Wave", " dance "];
+    Assert(ChoiceSelector.Select(ChoiceMode.ByWord, words, "WAVE", 0, _ => 0) == 1 &&
+           ChoiceSelector.Select(ChoiceMode.ByWord, words, "dance", 0, _ => 0) == 2,
+        "By word picks the choice whose word is $1, ignoring case and spaces");
+    Assert(ChoiceSelector.Select(ChoiceMode.ByWord, words, "logout", 0, _ => 0) == -1 &&
+           ChoiceSelector.Select(ChoiceMode.ByWord, words, "", 0, _ => 0) == -1 &&
+           ChoiceSelector.Select(ChoiceMode.ByWord, ["", "hug"], " ", 0, _ => 0) == -1,
+        "an unknown or empty word picks nothing, and an empty choice word never matches");
+    Assert(ChoiceSelector.Select(ChoiceMode.InTurn, words, "", 0, _ => 0) == 0 &&
+           ChoiceSelector.Select(ChoiceMode.InTurn, words, "", 4, _ => 0) == 1 &&
+           ChoiceSelector.Select(ChoiceMode.InTurn, words, "", int.MinValue, _ => 0) is >= 0 and < 3,
+        "In turn goes round the choices, even after the counter wraps");
+    Assert(ChoiceSelector.Select(ChoiceMode.Random, words, "", 0, _ => 2) == 2 &&
+           ChoiceSelector.Select(ChoiceMode.Random, words, "", 0, _ => 99) == 2 &&
+           ChoiceSelector.Select(ChoiceMode.Random, words, "", 0, _ => -5) == 0,
+        "Random uses the roll, kept in range");
+    Assert(ChoiceSelector.Select(ChoiceMode.Random, [], "", 0, _ => 0) == -1 &&
+           ChoiceSelector.Select(ChoiceMode.Off, words, "hug", 0, _ => 0) == -1, "no choices (or Off) picks nothing");
+    var turn = new ChoiceTurn();
+    turn.Advance();
+    turn.Advance();
+    Assert(turn.Current == 2, "the turn moves on once per Advance");
+
+    var reaction = new Reaction
+    {
+        Name = "Hugs",
+        Enabled = true,
+        UseRegex = true,
+        CustomRx = new Regex(@"^please (\w+)(?: (\w+))?$", RegexOptions.None, TimeSpan.FromMilliseconds(250)),
+        ReplaceMatch = "/$1",
+        ChoiceMode = ChoiceMode.ByWord,
+        Choices =
+        [
+            new ReactionChoice { Word = "hug", Commands = "/hug $2\n/wait 1" },
+            new ReactionChoice { Word = "wave", Commands = "/wave\n/$2" },
+        ],
+        EnabledChannels = [10],
+        Senders = SenderFilter.AnyoneFilter(),
+    };
+    var set = ChoiceSet.From(reaction)!;
+    var status = ReactionCommandMatcher.TryGenerateCommand(reaction.CustomRx, "please HUG friend", reaction.ReplaceMatch, set, 0, null,
+        out var command, out _, out var choice, out _);
+    Assert(status == ReactionMatchStatus.Success && choice == 0 && command == "/hug friend\n/wait 1",
+        "the chosen block is the replacement, with $2 filled in");
+    Assert(ReactionCommandMatcher.TryGenerateCommand(reaction.CustomRx, "please logout", reaction.ReplaceMatch, set, 0, null,
+               out _, out _, out var noChoice, out _) == ReactionMatchStatus.NoMatch && noChoice == -1,
+        "By word with an unknown word is no match, so $1 can't pick commands of its own");
+
+    reaction.UseRegex = false;
+    reaction.Rx = new Regex("please (\\w+)");
+    Assert(ChoiceSet.From(reaction) == null && !ChoiceSelector.IsActive(reaction), "phrase triggers don't use choices");
+    reaction.UseRegex = true;
+    reaction.ChoiceMode = ChoiceMode.Off;
+    Assert(ChoiceSet.From(reaction) == null, "choices that are off aren't used");
+    reaction.ChoiceMode = ChoiceMode.ByWord;
+
+    // Try it shows which choice, and treats each block's own /wait as the trigger's pause.
+    var waits = new List<bool>();
+    bool Check(Reaction r, string line, bool templateWait, out string reason)
+    {
+        if (line == "/wait")
+            waits.Add(templateWait);
+        var allowed = line != "/logout";
+        reason = allowed ? "allowed" : "never runs";
+        return allowed;
+    }
+    static bool IsEmote(string line) => line is "/hug" or "/wave";
+    var preview = PluginUiLogic.BuildPreview(reaction, "please hug friend", IsEmote, Check);
+    Assert(preview.Status == PreviewStatus.Matched && preview.Choice == "Choice 1 of 2 (word \"hug\")" &&
+           preview.Lines[0].Command == "/hug motion" && waits.SequenceEqual([true]),
+        $"Try it should name the choice and show its lines ({preview.Choice})");
+    var waved = PluginUiLogic.BuildPreview(reaction, "please wave logout", IsEmote, Check);
+    Assert(waved.Lines.Count == 2 && !waved.Lines[1].Allowed, "a capture in a choice is still checked like any command");
+    Assert(PluginUiLogic.BuildPreview(reaction, "please dance", IsEmote, Check).Status == PreviewStatus.NoMatch,
+        "Try it shows no match for an unknown word");
+
+    reaction.ChoiceMode = ChoiceMode.InTurn;
+    Assert(PluginUiLogic.BuildPreview(reaction, "please x", IsEmote, Check, turn: 3).Choice == "Choice 2 of 2 (next in turn)",
+        "Try it shows the choice that's next in turn");
+    reaction.ChoiceMode = ChoiceMode.Random;
+    Assert(PluginUiLogic.BuildPreview(reaction, "please x", IsEmote, Check, random: _ => 1).Choice == "Choice 2 of 2 (picked at random)",
+        "Try it says a random choice was picked");
+    var all = PluginUiLogic.TestAllTriggers([reaction], "please x", 10, PluginUiLogic.TestSender(0, ""), IsEmote, Check,
+        _ => 0, _ => 0);
+    Assert(all.Count == 1 && all[0].Preview.Choice == "Choice 1 of 2 (picked at random)", "Test all triggers shows the choice too");
+
+    var copy = PluginUiLogic.CloneReaction(reaction);
+    copy.Choices[0].Commands = "/changed";
+    Assert(reaction.Choices[0].Commands != "/changed" && copy.ChoiceMode == ChoiceMode.Random && copy.Choices.Count == 2,
+        "a duplicated trigger gets its own copy of the choices");
+
+    Console.WriteLine("PASS choices");
+}
+
+static void RunFinalActionTests()
+{
+    var commands = new List<string>();
+    Assert(PluginUiLogic.AddFinalCommand(commands, "wave") && commands[0] == "/wave", "a final line gets its leading /");
+    Assert(PluginUiLogic.AddFinalCommand(commands, "/wave"), "the same line twice is fine (a routine can repeat)");
+    Assert(!PluginUiLogic.AddFinalCommand(commands, "/echo a\n/logout") && !PluginUiLogic.AddFinalCommand(commands, "  "),
+        "blank or multi-line input isn't added");
+    while (commands.Count < Reaction.MaxFinalCommands)
+        PluginUiLogic.AddFinalCommand(commands, "/echo more");
+    Assert(!PluginUiLogic.AddFinalCommand(commands, "/echo too many") && commands.Count == Reaction.MaxFinalCommands,
+        "at most five final lines");
+
+    var reaction = new Reaction
+    {
+        Name = "Wave",
+        Enabled = true,
+        UseRegex = true,
+        CustomRx = new Regex(@"^please (\w+)$"),
+        ReplaceMatch = "/$1",
+        FinalCommands = [" ", "/echo done $1", "/logout\n/shutdown", "/wait 2", "/logout", "/a", "/b", "/c"],
+        EnabledChannels = [10],
+        Senders = SenderFilter.AnyoneFilter(),
+    };
+    Assert(PluginUiLogic.FinalCommandLines(reaction).SequenceEqual(["/echo done $1", "/wait 2", "/logout", "/a", "/b"]),
+        "blank and multi-line final lines are skipped, and only five run");
+    var templateWaits = new List<bool>();
+    bool Check(Reaction r, string line, bool templateWait, out string reason)
+    {
+        if (line == "/wait")
+            templateWaits.Add(templateWait);
+        var allowed = line != "/logout";
+        reason = allowed ? "allowed" : "never runs";
+        return allowed;
+    }
+    var preview = PluginUiLogic.BuildPreview(reaction, "please wave", _ => false, Check);
+    Assert(preview.FinalLines.Count == 5 && preview.FinalLines[0].Command == "/echo done $1",
+        "the final action is sent as written: $1 isn't filled in");
+    Assert(!preview.FinalLines[2].Allowed && templateWaits.SequenceEqual([true]),
+        "final lines are checked like any command, and their own /wait is the trigger's pause");
+    reaction.FinalCommands = null!;
+    Assert(PluginUiLogic.FinalCommandLines(reaction).Length == 0, "no final action list means nothing runs");
+
+    Console.WriteLine("PASS final action");
+}
+
+static void RunV6MigrationTests()
+{
+    var old = DalamudJson.Load("{\"Version\": 5, \"Reactions\": [{\"Name\": \"Old\", \"CooldownSeconds\": 5}]}");
+    Assert(ConfigurationMigrator.MigrateAndNormalize(old) && old.Version == 6, "v5 should migrate to v6");
+    var migrated = old.Reactions[0];
+    Assert(migrated.PerSenderCooldownSeconds == 0 && !migrated.OneWaitingPerSender && migrated.ChoiceMode == ChoiceMode.Off &&
+           migrated.Choices.Count == 0 && migrated.FinalCommands.Count == 0 && migrated.FinalWhen == FinalActionWhen.AfterEachRun &&
+           migrated.CooldownSeconds == 5,
+        "a v5 trigger should keep its settings, with the new ones off");
+
+    var clamped = new Configuration();
+    clamped.Reactions.Add(new Reaction { PerSenderCooldownSeconds = 99_999 });
+    ConfigurationMigrator.MigrateAndNormalize(clamped);
+    Assert(clamped.Reactions[0].PerSenderCooldownSeconds == Reaction.MaxPerSenderCooldownSeconds,
+        "a too-long per-person cooldown should be clamped");
+
+    Console.WriteLine("PASS v6 migration");
 }

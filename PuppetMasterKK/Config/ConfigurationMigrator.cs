@@ -29,6 +29,7 @@ public static class ConfigurationMigrator
                 2 => MigrateV2ToV3(configuration),
                 3 => MigrateV3ToV4(configuration),
                 4 => MigrateV4ToV5(configuration),
+                5 => MigrateV5ToV6(configuration),
                 _ => throw new InvalidOperationException(
                     $"No migration path exists from configuration v{configuration.Version}."),
             };
@@ -117,6 +118,13 @@ public static class ConfigurationMigrator
         follow.MimicWords = null;
         follow.MimicMotionOnly = null;
         configuration.Version = 5;
+        return true;
+    }
+
+    // Per-person limits, choices and final actions are new and start off: nothing to change.
+    private static bool MigrateV5ToV6(Configuration configuration)
+    {
+        configuration.Version = 6;
         return true;
     }
 
@@ -316,7 +324,40 @@ public static class ConfigurationMigrator
                 reaction.SuppressedNotifications = ReactionNotificationSetting.Inherit;
                 changed = true;
             }
+            changed |= RepairV6Fields(reaction);
         }
+        return changed;
+    }
+
+    // Per-person limits, choices and the final action.
+    private static bool RepairV6Fields(Reaction reaction)
+    {
+        var changed = false;
+        var perSender = Math.Clamp(reaction.PerSenderCooldownSeconds, 0, Reaction.MaxPerSenderCooldownSeconds);
+        if (reaction.PerSenderCooldownSeconds != perSender) { reaction.PerSenderCooldownSeconds = perSender; changed = true; }
+        if (!Enum.IsDefined(reaction.ChoiceMode)) { reaction.ChoiceMode = ChoiceMode.Off; changed = true; }
+        if (reaction.Choices == null) { reaction.Choices = []; changed = true; }
+        changed |= RemoveNullEntries(reaction.Choices);
+        if (reaction.Choices.Count > Reaction.MaxChoices)
+        {
+            reaction.Choices.RemoveRange(Reaction.MaxChoices, reaction.Choices.Count - Reaction.MaxChoices);
+            changed = true;
+        }
+        foreach (var choice in reaction.Choices)
+        {
+            if (choice.Word == null) { choice.Word = string.Empty; changed = true; }
+            if (choice.Commands == null) { choice.Commands = string.Empty; changed = true; }
+        }
+        reaction.FinalCommands = RepairStrings(reaction.FinalCommands, ref changed);
+        // One line each: a line break would add lines past the limit.
+        if (reaction.FinalCommands.RemoveAll(line => line.IndexOfAny(['\r', '\n']) >= 0) > 0)
+            changed = true;
+        if (reaction.FinalCommands.Count > Reaction.MaxFinalCommands)
+        {
+            reaction.FinalCommands.RemoveRange(Reaction.MaxFinalCommands, reaction.FinalCommands.Count - Reaction.MaxFinalCommands);
+            changed = true;
+        }
+        if (!Enum.IsDefined(reaction.FinalWhen)) { reaction.FinalWhen = FinalActionWhen.AfterEachRun; changed = true; }
         return changed;
     }
 

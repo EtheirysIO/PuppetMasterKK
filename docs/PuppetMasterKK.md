@@ -91,7 +91,7 @@ In incoming messages, write targets with square brackets. PuppetMasterKK turns `
 - **Blocked** — the command won't run; hover it to see why.
 - **No match** — the message doesn't match the trigger.
 
-The test runs exactly the matching that live chat uses. To try a message against every trigger at once, or to let triggers run without sending anything, see [Activity](#activity).
+With [Choices](#choices), it also says which choice it picked, and a [final action](#final-action) is listed after the commands. The test runs exactly the matching that live chat uses. To try a message against every trigger at once, or to let triggers run without sending anything, see [Activity](#activity).
 
 <details>
 <summary>Advanced matching with regular expressions</summary>
@@ -113,6 +113,18 @@ Commands to run:
 Use `^` and `$` when the entire message must match. **Restore defaults** puts back the pattern and commands the phrase mode would use. A pattern that takes too long on a message is stopped after a quarter of a second.
 
 </details>
+
+### Choices
+
+A regex trigger can run one of several sets of commands instead of **Commands to run**. Open **Choices** under **Listens for** and pick how the set is chosen:
+
+- **Random** — one at random each time.
+- **In turn** — the next one each time, then it starts over. Only a request that runs or waits moves it on; an ignored one doesn't.
+- **By word** — the one whose word is the pattern's first capture (`$1`), case doesn't matter. Any other word doesn't trigger it at all, so a sender can only pick from your list.
+
+Example: pattern `^please (\w+)$`, choice `hug` runs `/hug`, choice `dance` runs `/dance` then `/wait 3`. `please hug` hugs; `please logout` does nothing.
+
+Each choice works like **Commands to run**: one command per line, `$1`, `$2`… and `/wait`. Up to 16 choices.
 
 ## Who can trigger it
 
@@ -216,6 +228,21 @@ While a trigger is busy, another run of that same trigger can't start. Different
 
 Use **Restart immediately** for short triggers that should respond again right away. Avoid it for long multi-line triggers, because a new message stops the remaining lines and cooldown doesn't apply.
 
+### Per-person limits
+
+Also under **Repeats and cooldown**:
+
+- **Cooldown per person** — after someone's request runs or starts waiting, that person can't trigger it again for this long (up to an hour). Other people still can. It applies with every repeat setting, Restart immediately too, so one person can't keep restarting it.
+- **One waiting request per person** (Queue every trigger only) — a person's newer request replaces their older one that's still waiting, at the back of the line. Activity shows who each waiting request is from.
+
+People are told apart by `Name@World`. Messages with no player behind them (system and custom channels) all count as the same person. For different commands per person, duplicate the trigger and give each copy its own **Who can trigger it**.
+
+### Final action
+
+**Final action** runs up to five commands after a run finishes on its own: **After every run**, or **When nothing is waiting** (only once the queue is empty). They're sent as written (`$1` isn't filled in), checked by **Protections** like any command, and a `/wait` among them is the trigger's own pause.
+
+It never runs after **Stop**, a restart, turning the trigger off, `/pmkk off` or a stop word, and it stops by itself after 10 seconds. The trigger stays busy while it runs. Practice mode applies to it too.
+
 <details>
 <summary>More about cooldowns and waiting requests</summary>
 
@@ -298,14 +325,14 @@ Open **Activity** from the sidebar, or run:
 /pmkk viz
 ```
 
-It shows what's running (with **Stop**), what's waiting, what recently finished and how long it took, and the state of every trigger. Select a trigger's name to open it in the editor.
+It shows what's running (with **Stop**), what's waiting (and who it's from), what recently finished and how long it took, and the state of every trigger. Select a trigger's name to open it in the editor.
 
 ### Counts
 
 The counts at the top cover this session; hover one for details.
 
-- **Ignored** — requests dropped because the trigger was busy (with **Ignore**) or cooling down.
-- **Replaced** — waiting requests dropped for a newer one (**Queue latest trigger**, **Restart immediately**).
+- **Ignored** — requests dropped because the trigger was busy (with **Ignore**) or cooling down (for everyone, or for that person).
+- **Replaced** — waiting requests dropped for a newer one (**Queue latest trigger**, **Restart immediately**, **One waiting request per person**).
 - **Discarded** — dropped under load: messages that arrived too fast, and requests over the 16 a trigger can queue.
 
 **All triggers** has an **Ignored** column per trigger; hover it for everything else (started, done, stopped, interrupted, replaced, discarded, blocked lines, pattern timeouts). Under **Recently finished**, **Interrupted** means a newer request restarted it and **Replaced** means it never ran because a newer request took its place; **Stopped** means you (or a change to the trigger) stopped it. **Clear** in the message log, or `/pmkk logging clear`, resets the counts.
@@ -323,7 +350,7 @@ Triggers match, wait, queue and check their commands exactly as usual, but nothi
 
 ### Test all triggers
 
-Type a message, pick a channel and who sends it (a stranger, a friend, a Free Company or party member, and optionally a `Name@World`). Every trigger whose pattern matches is listed with what it would run, and whether it would fire: **Fires**, **Off**, **Not listening here** or **Not from this sender**. Nothing is sent.
+Type a message, pick a channel and who sends it (a stranger, a friend, a Free Company or party member, and optionally a `Name@World`). Every trigger whose pattern matches is listed with what it would run (and which choice), and whether it would fire: **Fires**, **Off**, **Not listening here** or **Not from this sender**. Nothing is sent.
 
 ## Message log
 

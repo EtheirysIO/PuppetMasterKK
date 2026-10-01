@@ -23,9 +23,33 @@ namespace PuppetMasterKK
         Disabled,
     }
 
+    // Choices (regex triggers): which block of commands runs.
+    public enum ChoiceMode
+    {
+        Off,
+        Random,
+        InTurn,
+        // The pattern's first capture ($1) names the choice.
+        ByWord,
+    }
+
+    // When a trigger's final action runs.
+    public enum FinalActionWhen
+    {
+        AfterEachRun,
+        WhenNothingWaiting,
+    }
+
+    public class ReactionChoice
+    {
+        // ByWord: $1 has to be this word (case doesn't matter).
+        public string Word { get; set; } = string.Empty;
+        public string Commands { get; set; } = string.Empty;
+    }
+
     public class ConfigVersion
     {
-        public const int CURRENT = 5;
+        public const int CURRENT = 6;
     }
 
     public class ChannelSetting
@@ -41,6 +65,9 @@ namespace PuppetMasterKK
     {
         public const string DefaultTriggerPhrase = "please do";
         public const int MaxCooldownSeconds = 86400;
+        public const int MaxPerSenderCooldownSeconds = 3600;
+        public const int MaxChoices = 16;
+        public const int MaxFinalCommands = 5;
 
         public bool Enabled { get; set; } = false;
         public string Name { get; set; } = string.Empty;
@@ -69,6 +96,18 @@ namespace PuppetMasterKK
         public ProtectionSettings Protections { get; set; } = new();
         // Every protection off: any command runs except /follow (the Allowed and Blocked lists are off too).
         public bool NoProtections { get; set; } = false;
+
+        //---- Version 6
+        // Each person waits this long before they can trigger it again (0: off).
+        public int PerSenderCooldownSeconds { get; set; } = 0;
+        // Queue every trigger: a person's newer request replaces their older one that's still waiting.
+        public bool OneWaitingPerSender { get; set; } = false;
+        // Regex triggers: run one of these blocks instead of ReplaceMatch (see ChoiceSelector).
+        public ChoiceMode ChoiceMode { get; set; } = ChoiceMode.Off;
+        public List<ReactionChoice> Choices { get; set; } = [];
+        // Run after a run finishes on its own, as written (no $1), at most MaxFinalCommands lines.
+        public List<string> FinalCommands { get; set; } = [];
+        public FinalActionWhen FinalWhen { get; set; } = FinalActionWhen.AfterEachRun;
         // Runtime only. Compiled regexes must never be persisted: Newtonsoft would rebuild them without the match
         // timeout, and a stale saved pattern would shadow later edits to TriggerPhrase/CustomPhrase.
         [JsonIgnore]

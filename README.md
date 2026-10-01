@@ -30,7 +30,10 @@ PuppetMasterKK watches the chat channels you pick. When someone you trust says t
 - **Regex triggers:** text captured from the message (`$1`, `$2`) goes into your commands. Several command lines, with `/wait` pauses of up to 60 seconds between them.
 - **Who and where:** each trigger picks its channels (Say, Tell, Party, FC, linkshells, CWLS, custom channels) and who can set it off (Anyone, Friends, your Free Company, your party and alliance, or named players).
 - **Repeats and cooldowns:** a message that arrives while a trigger is busy can be ignored, queued, kept as the newest only, or restart the trigger right away.
-- **Try it:** type a message in the editor and see exactly what it would run, and why anything is blocked.
+- **Per-person limits:** a cooldown for each person, and one waiting request per person.
+- **Choices:** run one of several sets of commands, at random, in turn, or picked by a word from your list.
+- **Final action:** up to five commands after a run finishes, such as a closing emote.
+- **Try it:** type a message in the editor and see exactly what it would run (and which choice), and why anything is blocked.
 
 ### Protections
 
@@ -105,8 +108,6 @@ These are ideas, not promises. Plans may change as they are tested.
 
 - Group selected triggers so they take turns instead of overlapping.
 - Export a trigger as a share code that another user can review before enabling.
-- Add different behavior for each person sending requests.
-- Let triggers choose from approved alternatives or run a final action when their work is done.
 
 ## Building
 

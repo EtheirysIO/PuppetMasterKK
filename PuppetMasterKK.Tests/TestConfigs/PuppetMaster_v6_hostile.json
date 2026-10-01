@@ -1,0 +1,25 @@
+{
+  "Version": 6,
+  "Reactions": [
+    {
+      "Name": "Choices",
+      "UseRegex": true,
+      "CustomPhrase": "^hug (\\w+)$",
+      "PerSenderCooldownSeconds": 2147483647,
+      "OneWaitingPerSender": true,
+      "ChoiceMode": 999,
+      "Choices": [null, { "Word": null, "Commands": null }, { "$type": "Evil.Payload, Evil", "Word": "hug", "Commands": "/hug" },
+        {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}],
+      "FinalCommands": [null, " ", "/echo one", "/echo two\n/logout", "/echo three", "/echo four", "/echo five", "/echo six"],
+      "FinalWhen": -7
+    },
+    {
+      "Name": "Nulls",
+      "PerSenderCooldownSeconds": -5,
+      "Choices": null,
+      "FinalCommands": null,
+      "ChoiceMode": 3,
+      "FinalWhen": 1
+    }
+  ]
+}

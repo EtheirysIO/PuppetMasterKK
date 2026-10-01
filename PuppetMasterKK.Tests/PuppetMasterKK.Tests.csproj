@@ -38,6 +38,8 @@
     <Compile Include="..\PuppetMasterKK\Follow\PathSmoothing.cs" Link="Linked\PathSmoothing.cs" />
     <Compile Include="..\PuppetMasterKK\Chat\SenderFilter.cs" Link="Linked\SenderFilter.cs" />
     <Compile Include="..\PuppetMasterKK\Follow\FollowRequest.cs" Link="Linked\FollowRequest.cs" />
+    <Compile Include="..\PuppetMasterKK\Chat\ChoiceSelector.cs" Link="Linked\ChoiceSelector.cs" />
+    <Compile Include="..\PuppetMasterKK\Chat\SenderCooldowns.cs" Link="Linked\SenderCooldowns.cs" />
     <None Include="TestConfigs\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

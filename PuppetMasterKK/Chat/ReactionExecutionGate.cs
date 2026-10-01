@@ -11,6 +11,8 @@ internal enum ReactionRejectionReason
     None,
     Busy,
     Cooldown,
+    // This person's own cooldown (per-person limits).
+    SenderCooldown,
 }
 
 internal sealed class ReactionExecutionGate

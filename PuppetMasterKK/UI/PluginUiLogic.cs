@@ -24,6 +24,12 @@ internal sealed record ReactionPreview(PreviewStatus Status, string Matched, str
 {
     public static readonly ReactionPreview Empty = new(PreviewStatus.Empty, string.Empty, null, []);
     public static readonly ReactionPreview NoMatch = new(PreviewStatus.NoMatch, string.Empty, null, []);
+
+    /// <summary>Which choice it picked ("Choice 2 of 3 (next in turn)"), or null without choices.</summary>
+    public string? Choice { get; init; }
+
+    /// <summary>The final action's lines.</summary>
+    public IReadOnlyList<PreviewLine> FinalLines { get; init; } = [];
 }
 
 /// <summary>The permission check for one line of a trigger's commands (Service.IsCommandAllowed in the plugin).</summary>
@@ -213,15 +219,22 @@ internal static class PluginUiLogic
     /// </summary>
     public static bool AddCommandLine(List<string> commands, string input)
     {
-        var line = input.Trim();
-        if (line.Length == 0 || line.IndexOfAny(['\r', '\n']) >= 0)
-            return false;
-        if (!line.StartsWith('/'))
-            line = "/" + line;
-        if (line.Length < 2 || ContainsCommand(commands, line))
+        var line = CommandLine(input);
+        if (line == null || ContainsCommand(commands, line))
             return false;
         commands.Add(line);
         return true;
+    }
+
+    // One command line with a leading "/", or null when it's blank or more than one line.
+    private static string? CommandLine(string input)
+    {
+        var line = input.Trim();
+        if (line.Length == 0 || line.IndexOfAny(['\r', '\n']) >= 0)
+            return null;
+        if (!line.StartsWith('/'))
+            line = "/" + line;
+        return line.Length < 2 ? null : line;
     }
 
     /// <summary>
@@ -281,6 +294,12 @@ internal static class PluginUiLogic
             Protections = (source.Protections ?? new ProtectionSettings()).Clone(),
             // A copy never starts without protections: that takes its own two confirmations.
             NoProtections = false,
+            PerSenderCooldownSeconds = source.PerSenderCooldownSeconds,
+            OneWaitingPerSender = source.OneWaitingPerSender,
+            ChoiceMode = source.ChoiceMode,
+            Choices = (source.Choices ?? []).Select(choice => new ReactionChoice { Word = choice.Word, Commands = choice.Commands }).ToList(),
+            FinalCommands = new List<string>(source.FinalCommands ?? []),
+            FinalWhen = source.FinalWhen,
         };
     }
 
@@ -336,17 +355,24 @@ internal static class PluginUiLogic
     /// Matches <paramref name="message"/> the way live chat does and lists each command line with whether it may run.
     /// Nothing is sent.
     /// </summary>
-    public static ReactionPreview BuildPreview(Reaction reaction, string message, Func<string, bool> isEmote, CommandCheck check)
+    /// <param name="turn">In turn: the trigger's next position (ChatHandler.GetChoiceTurn).</param>
+    /// <param name="random">Random choices: 0..n-1 (null: Random.Shared).</param>
+    public static ReactionPreview BuildPreview(Reaction reaction, string message, Func<string, bool> isEmote, CommandCheck check,
+        int turn = 0, Func<int, int>? random = null)
     {
         if (string.IsNullOrWhiteSpace(message))
             return ReactionPreview.Empty;
-        var replacement = ReactionCommandMatcher.SelectReplacement(reaction);
+        var choices = ChoiceSet.From(reaction);
         var status = ReactionCommandMatcher.TryGenerateCommand(
             ReactionCommandMatcher.SelectPattern(reaction),
             ReactionCommandMatcher.SanitizeIncoming(message),
-            replacement,
+            ReactionCommandMatcher.SelectReplacement(reaction),
+            choices,
+            turn,
+            random,
             out var command,
             out var matched,
+            out var choice,
             out var error);
         if (status == ReactionMatchStatus.InvalidReplacement)
             return new(PreviewStatus.Error, string.Empty, error ?? "Couldn't build commands from this pattern.", []);
@@ -355,9 +381,23 @@ internal static class PluginUiLogic
         if (status != ReactionMatchStatus.Success)
             return ReactionPreview.NoMatch;
 
+        var template = choices != null && choice >= 0 ? choices.Commands[choice] : ReactionCommandMatcher.SelectReplacement(reaction);
+        var finalLines = FinalCommandLines(reaction);
+        return new(PreviewStatus.Matched, matched, null,
+                   PreviewLines(reaction, command, ReactionCommandMatcher.TemplateWaitLines(template), isEmote, check))
+        {
+            Choice = choices != null && choice >= 0 ? ChoiceSelector.Describe(choices.Mode, choices.Words, choice) : null,
+            FinalLines = PreviewLines(reaction, string.Join('\n', finalLines),
+                                      ReactionCommandMatcher.TemplateWaitLines(string.Join('\n', finalLines)), isEmote, check),
+        };
+    }
+
+    // Each command line as it would run, with whether it may.
+    private static List<PreviewLine> PreviewLines(Reaction reaction, string command, bool[] waitLines, Func<string, bool> isEmote,
+        CommandCheck check)
+    {
         var lines = new List<PreviewLine>();
         var split = ReactionCommandMatcher.SplitLines(command);
-        var waitLines = ReactionCommandMatcher.TemplateWaitLines(replacement);
         for (var lineIndex = 0; lineIndex < split.Length; lineIndex++)
         {
             var parsed = ReactionCommandMatcher.FormatCommand(split[lineIndex]);
@@ -368,7 +408,31 @@ internal static class PluginUiLogic
             var allowed = check(reaction, parsed.Main, ReactionCommandMatcher.IsTemplateWait(waitLines, lineIndex), out var reason);
             lines.Add(new PreviewLine(parsed.ToString(), allowed, Capitalize(reason)));
         }
-        return new(PreviewStatus.Matched, matched, null, lines);
+        return lines;
+    }
+
+    /// <summary>The final action's lines as they run: blank ones and ones with a line break skipped, at most five.</summary>
+    public static string[] FinalCommandLines(Reaction reaction)
+    {
+        if (reaction.FinalCommands == null)
+            return [];
+        return reaction.FinalCommands
+            .Where(line => !string.IsNullOrWhiteSpace(line) && line.IndexOfAny(['\r', '\n']) < 0)
+            .Take(Reaction.MaxFinalCommands)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Adds a final-action line (see <see cref="AddCommandLine"/>), unless there are already
+    /// <see cref="Reaction.MaxFinalCommands"/>. Duplicates are fine here: "/wave" twice is a real routine.
+    /// </summary>
+    public static bool AddFinalCommand(List<string> commands, string input)
+    {
+        var line = CommandLine(input);
+        if (line == null || commands.Count >= Reaction.MaxFinalCommands)
+            return false;
+        commands.Add(line);
+        return true;
     }
 
     /// <summary>A pretend sender for "Test all triggers": a kind from <see cref="TestSenderLabels"/>, plus an optional Name@World.</summary>
@@ -386,13 +450,14 @@ internal static class PluginUiLogic
     /// for this channel and sender. Triggers that don't match are left out. Nothing is sent.
     /// </summary>
     internal static List<TriggerTestResult> TestAllTriggers(IReadOnlyList<Reaction> reactions, string message, int channel,
-        in SenderInfo sender, Func<string, bool> isEmote, CommandCheck check)
+        in SenderInfo sender, Func<string, bool> isEmote, CommandCheck check, Func<Reaction, int>? turnOf = null,
+        Func<int, int>? random = null)
     {
         var results = new List<TriggerTestResult>();
         for (var index = 0; index < reactions.Count; index++)
         {
             var reaction = reactions[index];
-            var preview = BuildPreview(reaction, message, isEmote, check);
+            var preview = BuildPreview(reaction, message, isEmote, check, turnOf?.Invoke(reaction) ?? 0, random);
             if (preview.Status is PreviewStatus.Empty or PreviewStatus.NoMatch)
                 continue;
             var outcome = !reaction.Enabled ? TriggerTestOutcome.Off

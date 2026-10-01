@@ -15,7 +15,9 @@ internal sealed record VisualizerRunSnapshot(long Id, long ReactionId, string Re
     // Practice mode: the lines this run would have sent.
     public string[] WouldSend { get; init; } = [];
 }
-internal sealed record VisualizerQueueSnapshot(long Id, long ReactionId, string ReactionName, string Command, DateTime QueuedAt);
+// From: the sender ("Name@World"), empty when unknown.
+internal sealed record VisualizerQueueSnapshot(long Id, long ReactionId, string ReactionName, string Command, DateTime QueuedAt,
+    string From = "");
 internal sealed record ReactionVisualizerSnapshot(VisualizerRunSnapshot[] Active, VisualizerQueueSnapshot[] Queued,
     VisualizerRunSnapshot[] Recent);
 
@@ -149,13 +151,17 @@ internal static class ReactionVisualizerState
         }
     }
 
-    public static void QueuedRun(long reactionId, string reactionName, string command, ReactionExecutionPolicy policy)
+    /// <param name="replaceSameSender">One waiting request per person: drops (as Replaced) the one from the same sender.</param>
+    public static void QueuedRun(long reactionId, string reactionName, string command, ReactionExecutionPolicy policy,
+        string from = "", bool replaceSameSender = false)
     {
         lock (Sync)
         {
             if (policy is ReactionExecutionPolicy.QueueLatestTrigger or ReactionExecutionPolicy.RestartImmediately)
                 RemoveQueued(reactionId, replaced: true);
-            Queued.Add(new(++nextId, reactionId, DisplayName(reactionName), command, DateTime.Now));
+            else if (replaceSameSender)
+                RemoveQueued(reactionId, replaced: true, from);
+            Queued.Add(new(++nextId, reactionId, DisplayName(reactionName), command, DateTime.Now, from));
             while (Queued.Count(item => item.ReactionId == reactionId) > 16)
             {
                 var oldest = Queued.FindIndex(item => item.ReactionId == reactionId);
@@ -195,19 +201,22 @@ internal static class ReactionVisualizerState
         return reactionEnabled ? VisualizerRunStatus.Cancelled : VisualizerRunStatus.Disabled;
     }
 
-    private static void RemoveQueued(long reactionId, bool replaced)
+    // from: only that sender's (null: all of the trigger's).
+    private static void RemoveQueued(long reactionId, bool replaced, string? from = null)
     {
+        bool Matches(VisualizerQueueSnapshot item)
+            => item.ReactionId == reactionId && (from == null || item.From.Equals(from, StringComparison.OrdinalIgnoreCase));
         if (replaced)
         {
             var now = DateTime.Now;
             foreach (var item in Queued)
             {
-                if (item.ReactionId == reactionId)
+                if (Matches(item))
                     AddRecent(new(item.Id, reactionId, item.ReactionName, item.Command, VisualizerRunStatus.Replaced,
                                   item.QueuedAt, now));
             }
         }
-        Queued.RemoveAll(item => item.ReactionId == reactionId);
+        Queued.RemoveAll(Matches);
     }
 
     private static void AddRecent(VisualizerRunSnapshot run)

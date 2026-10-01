@@ -41,7 +41,7 @@ internal sealed partial class MainWindow
             ImGui.SameLine(0f, Theme.S(40f));
             W.Stat(totals.Replaced.ToString(), "Replaced");
             if (ImGui.IsItemHovered())
-                W.Tooltip("Waiting requests dropped for a newer one (Queue latest trigger, Restart immediately).");
+                W.Tooltip("Waiting requests dropped for a newer one (Queue latest trigger, Restart immediately, one waiting request per person).");
             ImGui.SameLine(0f, Theme.S(40f));
             var droppedMessages = ChatHandler.DroppedMessageCount;
             var droppedRequests = ChatHandler.DroppedRetriggerCount;
@@ -95,11 +95,12 @@ internal sealed partial class MainWindow
                 ImGui.TextColored(Theme.Faint, "Nothing is waiting.");
             else
             {
-                using var table = W.Table("##queuedTable", 3);
+                using var table = W.Table("##queuedTable", 4);
                 if (table.Open)
                 {
                     ImGui.TableSetupColumn("Trigger", ImGuiTableColumnFlags.WidthStretch, 1f);
                     ImGui.TableSetupColumn("Command", ImGuiTableColumnFlags.WidthStretch, 2f);
+                    ImGui.TableSetupColumn("From", ImGuiTableColumnFlags.WidthStretch, 1f);
                     W.FixedColumn("Since", 80f);
                     W.TableHeaders(trackedCaps: true);
                     foreach (var queued in activity.Queued)
@@ -111,6 +112,11 @@ internal sealed partial class MainWindow
                         ImGui.TextColored(Theme.Dim, W.Fit(FirstLine(queued.Command), ImGui.GetContentRegionAvail().X));
                         if (ImGui.IsItemHovered())
                             W.Tooltip(queued.Command);
+                        ImGui.TableNextColumn();
+                        if (queued.From.Length == 0)
+                            ImGui.TextColored(Theme.Faint, "Unknown");
+                        else
+                            ImGui.TextColored(Theme.Dim, W.Fit(queued.From, ImGui.GetContentRegionAvail().X));
                         ImGui.TableNextColumn();
                         ImGui.TextColored(Theme.Dim, queued.QueuedAt.ToString("HH:mm:ss"));
                     }
@@ -236,7 +242,8 @@ internal sealed partial class MainWindow
             if (testAllDirty || Environment.TickCount64 - testAllBuiltAt > 2000)
             {
                 testAllResults = PluginUiLogic.TestAllTriggers(Config.Reactions, testAllMessage, channels[testAllChannel],
-                    PluginUiLogic.TestSender(testAllSender, testAllName), Service.Commands.IsEmote, Service.IsCommandAllowed);
+                    PluginUiLogic.TestSender(testAllSender, testAllName), Service.Commands.IsEmote, Service.IsCommandAllowed,
+                    ChatHandler.GetChoiceTurn, PreviewRandom(testAllMessage));
                 testAllDirty = false;
                 testAllBuiltAt = Environment.TickCount64;
             }
