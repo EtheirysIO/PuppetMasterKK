@@ -86,6 +86,10 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
 
     protected override bool Colorblind => Config.Colorblind;
 
+    // The plugin's icon (images\icon.png next to the dll) in the sidebar's brand tile.
+    protected override string? BrandImagePath { get; } = System.IO.Path.Combine(
+        Service.PluginInterface.AssemblyLocation.DirectoryName ?? string.Empty, "images", "icon.png");
+
     protected override string PageTitle => page switch
     {
         Page.Reactions => SelectedReaction is { } reaction ? DisplayName(reaction) : "Triggers",
