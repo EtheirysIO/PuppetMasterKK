@@ -208,7 +208,7 @@ internal sealed partial class MainWindow
                               ? "Let new triggers run any game command that isn't blocked?"
                               : "Let this trigger run any game command that isn't blocked?", "Allow",
                           detail: "Chat commands, other plugins' commands and ones like teleporting or leaving the party still " +
-                                  "have to be listed one by one, and /logout, /shutdown, /pmkk and /xl… never run. Use this only " +
+                                  "have to be listed one by one, and /logout, /shutdown, /follow (that's Follow mode), /pmkk and /xl… never run. Use this only " +
                                   "with senders and channels you trust."))
         {
             if (allowAllTarget != null)
@@ -433,7 +433,7 @@ internal sealed partial class MainWindow
             Gap(2f);
             Hint("Emotes always run unless blocked. Chat commands (say, shout, tell, party, FC…) and other plugins' commands " +
                  "only run when listed as allowed, and so do teleporting, leaving the party and changing gear. " +
-                 "/logout, /shutdown, /pmkk and /xl… never run.");
+                 "/logout, /shutdown, /follow (that's Follow mode), /pmkk and /xl… never run.");
         }
     }
 

@@ -1128,6 +1128,8 @@ static void RunCommandPolicyTests()
     Assert(catalog.Classify("/pmkk") == CommandKind.Blocked && catalog.Classify("/PuppetMasterKK") == CommandKind.Blocked &&
            catalog.Classify("/puppetmaster") == CommandKind.Blocked,
         "this plugin's commands (and the old plugin's) should always be blocked");
+    Assert(!Allowed("/follow", ["/follow"], [], true) && catalog.Classify("/follow") == CommandKind.Blocked,
+        "triggers should never follow, even when /follow is listed: that is Follow mode's job");
     Assert(!Allowed("/pmkk", ["/pmkk"], [], true) && !Allowed("/puppetmasterkk", ["/puppetmasterkk"], [], true),
         "this plugin's commands should never run, even when listed and with any game command allowed");
 

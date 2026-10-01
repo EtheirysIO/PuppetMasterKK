@@ -45,7 +45,8 @@ internal sealed class CommandCatalog
 
     // English names of the commands that never run. The catalog maps them to the client's own names (the game
     // knows each command by its English name as well), so the block holds on every client language.
-    private static readonly string[] AlwaysBlockedForms = ["/logout", "/shutdown", "/puppetmaster", "/puppetmasterkk", "/pmkk"];
+    // /follow belongs to Follow mode (with its own sender, channel and target rules): triggers never send it.
+    private static readonly string[] AlwaysBlockedForms = ["/logout", "/shutdown", "/puppetmaster", "/puppetmasterkk", "/pmkk", "/follow"];
 
     private readonly Dictionary<string, string> canonical = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> emotes = new(StringComparer.OrdinalIgnoreCase);
@@ -152,7 +153,7 @@ internal static class CommandPolicy
     // Dalamud itself (a stranger could otherwise turn every disabled reaction back on).
     public static bool IsAlwaysBlocked(string canonicalCommand)
     {
-        return canonicalCommand is "/logout" or "/shutdown" or "/puppetmaster" or "/puppetmasterkk" or "/pmkk" ||
+        return canonicalCommand is "/logout" or "/shutdown" or "/puppetmaster" or "/puppetmasterkk" or "/pmkk" or "/follow" ||
                canonicalCommand.StartsWith("/xl", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -167,7 +168,7 @@ internal static class CommandPolicy
     {
         if (kind == CommandKind.Blocked || IsAlwaysBlocked(canonicalCommand))
         {
-            reason = "always blocked";
+            reason = canonicalCommand == "/follow" ? "only Follow mode can follow" : "always blocked";
             return false;
         }
         if (blacklist.Contains(canonicalCommand))
