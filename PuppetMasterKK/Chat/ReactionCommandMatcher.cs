@@ -18,6 +18,37 @@ internal static class ReactionCommandMatcher
         return reaction.UseRegex ? reaction.CustomRx : reaction.Rx;
     }
 
+    public static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// Builds the trigger's pattern (Rx or CustomRx, the other cleared) with the match timeout. An invalid or too-long
+    /// pattern leaves both null, so a stale compiled one can't be reused.
+    /// </summary>
+    public static void CompilePatterns(Reaction reaction, int maxLength)
+    {
+        reaction.Rx = null;
+        reaction.CustomRx = null;
+        try
+        {
+            // Nothing but the text box enforces the length limit, and a hand-edited config can hold anything.
+            if (reaction.UseRegex)
+            {
+                if (!string.IsNullOrWhiteSpace(reaction.CustomPhrase) && reaction.CustomPhrase.Length <= maxLength)
+                    reaction.CustomRx = new Regex(reaction.CustomPhrase, RegexOptions.None, MatchTimeout);
+            }
+            else
+            {
+                var pattern = BuildPhrasePattern(reaction.TriggerPhrase);
+                if (!string.IsNullOrWhiteSpace(pattern) && reaction.TriggerPhrase.Length <= maxLength)
+                    reaction.Rx = new Regex(pattern, RegexOptions.None, MatchTimeout);
+            }
+        }
+        catch (ArgumentException)
+        {
+            // Invalid patterns stay null.
+        }
+    }
+
     // The command template that goes with SelectPattern.
     public static string SelectReplacement(Reaction reaction)
     {

@@ -33,6 +33,7 @@ PuppetMasterKK watches the chat channels you pick. When someone you trust says t
 - **Per-person limits:** a cooldown for each person, and one waiting request per person.
 - **Choices:** run one of several sets of commands, at random, in turn, or picked by a word from your list.
 - **Final action:** up to five commands after a run finishes, such as a closing emote.
+- **Share codes:** copy a trigger as a code. Importing one shows everything it would allow; nothing risky comes in unless you tick it, and it arrives turned off.
 - **Try it:** type a message in the editor and see exactly what it would run (and which choice), and why anything is blocked.
 
 ### Protections
@@ -107,7 +108,6 @@ Over time it grew beyond emotes: other text commands, several command lines, cus
 These are ideas, not promises. Plans may change as they are tested.
 
 - Group selected triggers so they take turns instead of overlapping.
-- Export a trigger as a share code that another user can review before enabling.
 
 ## Building
 

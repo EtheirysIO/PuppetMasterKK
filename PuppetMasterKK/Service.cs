@@ -11,7 +11,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.Loader;
-using System.Text.RegularExpressions;
 
 namespace PuppetMasterKK
 {
@@ -166,30 +165,8 @@ namespace PuppetMasterKK
             if (!reload && (reaction.UseRegex ? reaction.CustomRx != null : reaction.Rx != null))
                 return;
 
-            reaction.Rx = null;
-            reaction.CustomRx = null;
-            try
-            {
-                // Nothing but the text box enforces the length limit, and a hand-edited config can hold anything.
-                var maxLength = configuration.MaxRegexLength;
-                if (reaction.UseRegex)
-                {
-                    if (!reaction.CustomPhrase.IsNullOrWhitespace() && reaction.CustomPhrase.Length <= maxLength)
-                        reaction.CustomRx = new Regex(reaction.CustomPhrase, RegexOptions.None, TimeSpan.FromMilliseconds(250));
-                }
-                else
-                {
-                    var pattern = GetDefaultRegex(index);
-                    if (!pattern.IsNullOrWhitespace() && reaction.TriggerPhrase.Length <= maxLength)
-                        reaction.Rx = new Regex(pattern, RegexOptions.None, TimeSpan.FromMilliseconds(250));
-                }
-            }
-            catch (ArgumentException)
-            {
-                // Invalid patterns remain null so they cannot silently reuse stale compiled regexes.
-            }
+            ReactionCommandMatcher.CompilePatterns(reaction, configuration.MaxRegexLength);
         }
-
 
         // The plugin that registered a command (its internal name), or null. Framework thread: it reads the registered
         // commands.

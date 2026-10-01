@@ -40,6 +40,8 @@
     <Compile Include="..\PuppetMasterKK\Follow\FollowRequest.cs" Link="Linked\FollowRequest.cs" />
     <Compile Include="..\PuppetMasterKK\Chat\ChoiceSelector.cs" Link="Linked\ChoiceSelector.cs" />
     <Compile Include="..\PuppetMasterKK\Chat\SenderCooldowns.cs" Link="Linked\SenderCooldowns.cs" />
+    <Compile Include="..\PuppetMasterKK\Config\ShareCodeCodec.cs" Link="Linked\ShareCodeCodec.cs" />
+    <Compile Include="..\PuppetMasterKK\Config\ShareCodeReview.cs" Link="Linked\ShareCodeReview.cs" />
     <None Include="TestConfigs\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

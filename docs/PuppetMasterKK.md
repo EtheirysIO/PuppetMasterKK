@@ -389,6 +389,20 @@ Triggers may share a name. `/pmkk on|off <TriggerName>` affects every trigger wi
 /pmkk off <TriggerName>
 ```
 
+### Share codes
+
+To share a trigger, press the share button next to **Duplicate**. A code starting with `PMKK1.` is copied; paste it anywhere. It carries the trigger's phrase or pattern, commands, choices, final action, repeat and cooldown settings, Allowed and Blocked lists, protections and built-in channels. It never carries who can trigger it (no player names), notifications, custom channels or whether it's on. A trigger with no protections is shared with them turned on.
+
+To import one, copy the code, then press the import button next to **New trigger**. The code is read from the clipboard only, never from chat. Before anything is added you see its pattern and commands, a **Try it** box checked against your own rules, and **Needs your OK**: everything it allows that your **Settings → New triggers** don't, each with its own tick:
+
+- **Any game command**.
+- Each allowed chat, risky, plugin or unknown command.
+- `/wait` in the sender's message.
+- Each protection it turns off (a whole group, a chat channel, a risky group or a plugin).
+- Each of your default blocks it drops.
+
+Everything starts unticked, and anything left unticked is left out. The trigger is always added turned off, for your new-trigger senders (never **Anyone**), on your new-trigger channels. The channels it used are offered as unticked extras, with public ones marked. A code that asks for no protections, is from a newer version, or is damaged or oversized is refused.
+
 ## Appearance
 
 **Settings → Appearance** sets the accent color, the text size and colorblind mode. Everything also follows Dalamud's global UI scale.

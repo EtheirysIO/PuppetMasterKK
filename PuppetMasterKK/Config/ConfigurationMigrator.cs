@@ -269,61 +269,68 @@ public static class ConfigurationMigrator
         changed |= DeduplicateChannels(configuration.DefaultEnabledChannels);
 
         foreach (var reaction in configuration.Reactions)
+            changed |= NormalizeReaction(reaction);
+        return changed;
+    }
+
+    /// <summary>Repairs one trigger the way loading does (nulls, clamps, unknown values, duplicates). True when it changed.</summary>
+    public static bool NormalizeReaction(Reaction reaction)
+    {
+        ArgumentNullException.ThrowIfNull(reaction);
+        var changed = false;
+        if (reaction.Name == null) { reaction.Name = string.Empty; changed = true; }
+        if (reaction.TriggerPhrase == null) { reaction.TriggerPhrase = Reaction.DefaultTriggerPhrase; changed = true; }
+        if (reaction.CustomPhrase == null) { reaction.CustomPhrase = string.Empty; changed = true; }
+        if (reaction.ReplaceMatch == null) { reaction.ReplaceMatch = string.Empty; changed = true; }
+        if (reaction.TestInput == null) { reaction.TestInput = string.Empty; changed = true; }
+        if (reaction.EnabledChannels == null) { reaction.EnabledChannels = []; changed = true; }
+        if (reaction.CommandWhitelist == null) { reaction.CommandWhitelist = []; changed = true; }
+        if (reaction.CommandBlacklist == null) { reaction.CommandBlacklist = []; changed = true; }
+        if (reaction.Senders == null) { reaction.Senders = SenderFilter.AnyoneFilter(); changed = true; }
+        reaction.Senders = RepairSenders(reaction.Senders, ref changed);
+        reaction.Protections = RepairProtections(reaction.Protections, ref changed);
+
+        changed |= DeduplicateChannels(reaction.EnabledChannels);
+        changed |= DeduplicateCommands(reaction.CommandWhitelist);
+        changed |= DeduplicateCommands(reaction.CommandBlacklist);
+
+        if (!reaction.AllowSit)
         {
-            if (reaction.Name == null) { reaction.Name = string.Empty; changed = true; }
-            if (reaction.TriggerPhrase == null) { reaction.TriggerPhrase = Reaction.DefaultTriggerPhrase; changed = true; }
-            if (reaction.CustomPhrase == null) { reaction.CustomPhrase = string.Empty; changed = true; }
-            if (reaction.ReplaceMatch == null) { reaction.ReplaceMatch = string.Empty; changed = true; }
-            if (reaction.TestInput == null) { reaction.TestInput = string.Empty; changed = true; }
-            if (reaction.EnabledChannels == null) { reaction.EnabledChannels = []; changed = true; }
-            if (reaction.CommandWhitelist == null) { reaction.CommandWhitelist = []; changed = true; }
-            if (reaction.CommandBlacklist == null) { reaction.CommandBlacklist = []; changed = true; }
-            if (reaction.Senders == null) { reaction.Senders = SenderFilter.AnyoneFilter(); changed = true; }
-            reaction.Senders = RepairSenders(reaction.Senders, ref changed);
-            reaction.Protections = RepairProtections(reaction.Protections, ref changed);
-
-            changed |= DeduplicateChannels(reaction.EnabledChannels);
-            changed |= DeduplicateCommands(reaction.CommandWhitelist);
-            changed |= DeduplicateCommands(reaction.CommandBlacklist);
-
-            if (!reaction.AllowSit)
+            foreach (var command in LegacySitCommands)
             {
-                foreach (var command in LegacySitCommands)
+                if (!PluginUiLogic.ContainsCommand(reaction.CommandBlacklist, command))
                 {
-                    if (!PluginUiLogic.ContainsCommand(reaction.CommandBlacklist, command))
-                    {
-                        reaction.CommandBlacklist.Add(command);
-                        changed = true;
-                    }
+                    reaction.CommandBlacklist.Add(command);
+                    changed = true;
                 }
-
-                reaction.AllowSit = true;
-                changed = true;
             }
 
-            var cooldown = Math.Clamp(reaction.CooldownSeconds, 0, Reaction.MaxCooldownSeconds);
-            if (reaction.CooldownSeconds != cooldown)
-            {
-                reaction.CooldownSeconds = cooldown;
-                changed = true;
-            }
-            if (!Enum.IsDefined(reaction.ExecutionPolicy))
-            {
-                reaction.ExecutionPolicy = ReactionExecutionPolicy.QueueEveryTrigger;
-                changed = true;
-            }
-            if (!Enum.IsDefined(reaction.ProgressNotifications))
-            {
-                reaction.ProgressNotifications = ReactionNotificationSetting.Inherit;
-                changed = true;
-            }
-            if (!Enum.IsDefined(reaction.SuppressedNotifications))
-            {
-                reaction.SuppressedNotifications = ReactionNotificationSetting.Inherit;
-                changed = true;
-            }
-            changed |= RepairV6Fields(reaction);
+            reaction.AllowSit = true;
+            changed = true;
         }
+
+        var cooldown = Math.Clamp(reaction.CooldownSeconds, 0, Reaction.MaxCooldownSeconds);
+        if (reaction.CooldownSeconds != cooldown)
+        {
+            reaction.CooldownSeconds = cooldown;
+            changed = true;
+        }
+        if (!Enum.IsDefined(reaction.ExecutionPolicy))
+        {
+            reaction.ExecutionPolicy = ReactionExecutionPolicy.QueueEveryTrigger;
+            changed = true;
+        }
+        if (!Enum.IsDefined(reaction.ProgressNotifications))
+        {
+            reaction.ProgressNotifications = ReactionNotificationSetting.Inherit;
+            changed = true;
+        }
+        if (!Enum.IsDefined(reaction.SuppressedNotifications))
+        {
+            reaction.SuppressedNotifications = ReactionNotificationSetting.Inherit;
+            changed = true;
+        }
+        changed |= RepairV6Fields(reaction);
         return changed;
     }
 

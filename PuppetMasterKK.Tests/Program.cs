@@ -263,6 +263,8 @@ RunPerSenderLimitTests();
 RunChoiceTests();
 RunFinalActionTests();
 RunV6MigrationTests();
+RunShareCodeTests();
+RunShareCodeReviewTests();
 
 Console.WriteLine("All PuppetMasterKK tests passed.");
 return;
@@ -2267,4 +2269,297 @@ static void RunV6MigrationTests()
         "a too-long per-person cooldown should be clamped");
 
     Console.WriteLine("PASS v6 migration");
+}
+
+static string ShareJson(string code)
+{
+    var body = code[ShareCodeCodec.Prefix.Length..].Replace('-', '+').Replace('_', '/');
+    body = body.PadRight(body.Length + (4 - body.Length % 4) % 4, '=');
+    using var input = new MemoryStream(Convert.FromBase64String(body));
+    using var inflate = new System.IO.Compression.DeflateStream(input, System.IO.Compression.CompressionMode.Decompress);
+    using var reader = new StreamReader(inflate);
+    return reader.ReadToEnd();
+}
+
+static string PackJson(string json) => ShareCodeCodec.Pack(System.Text.Encoding.UTF8.GetBytes(json));
+
+static void AssertRefused(string? code, string message, string? reasonContains = null)
+{
+    var ok = ShareCodeCodec.TryDecode(code, 1000, out _, out var error);
+    Assert(!ok && error.Length > 0, message);
+    if (reasonContains != null)
+        Assert(error.Contains(reasonContains, StringComparison.OrdinalIgnoreCase), $"{message} (reason: {error})");
+}
+
+static void RunShareCodeTests()
+{
+    bool BuiltIn(int id) => id < 200;
+    var source = new Reaction
+    {
+        Enabled = true,
+        Name = "Dance party",
+        UseRegex = true,
+        TriggerPhrase = "please do",
+        CustomPhrase = @"^dance (\w+)$",
+        ReplaceMatch = "/dance\n/wait 2\n/$1",
+        TestInput = "dance wave",
+        MotionOnly = false,
+        CooldownSeconds = 7,
+        ExecutionPolicy = ReactionExecutionPolicy.QueueLatestTrigger,
+        ProgressNotifications = ReactionNotificationSetting.Enabled,
+        SuppressedNotifications = ReactionNotificationSetting.Disabled,
+        AllowAllCommands = true,
+        CommandWhitelist = ["/shout", "/ac"],
+        CommandBlacklist = ["/sit"],
+        Senders = new SenderFilter { Anyone = true, Named = ["Nova Ral'veth@Exodus", "Test Player@World"] },
+        Protections = new ProtectionSettings { Chat = false, OpenRisky = ["teleport"], OpenPlugins = ["Lifestream"] },
+        PerSenderCooldownSeconds = 30,
+        OneWaitingPerSender = true,
+        ChoiceMode = ChoiceMode.ByWord,
+        Choices = [new ReactionChoice { Word = "wave", Commands = "/wave" }, new ReactionChoice { Word = "joy", Commands = "/joy" }],
+        FinalCommands = ["/bow"],
+        FinalWhen = FinalActionWhen.WhenNothingWaiting,
+        EnabledChannels = [10, 24, 9999],
+    };
+
+    Assert(ShareCodeCodec.TryEncode(source, BuiltIn, 1000, out var code, out var turnedOn, out _) && !turnedOn,
+        "a normal trigger should export");
+    Assert(code.StartsWith("PMKK1.", StringComparison.Ordinal) && code.Length <= ShareCodeCodec.MaxCodeLength &&
+           code.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '_'),
+        "a share code is the prefix plus base64url (no padding, no + or /)");
+    var json = ShareJson(code);
+    foreach (var secret in new[] { "Nova", "Test Player", "Named", "Senders", "Anyone", "Enabled\"", "Notifications", "9999", "NoProtections", "$type" })
+        Assert(!json.Contains(secret, StringComparison.Ordinal), $"a share code must not carry {secret}");
+
+    Assert(ShareCodeCodec.TryDecode(code, 1000, out var share, out _), "an exported code should import");
+    Assert(share.V == 1 && share.Name == "Dance party" && share.UseRegex && share.CustomPhrase == source.CustomPhrase &&
+           share.ReplaceMatch == source.ReplaceMatch && share.TestInput == "dance wave" && !share.MotionOnly &&
+           share.CooldownSeconds == 7 && share.ExecutionPolicy == ReactionExecutionPolicy.QueueLatestTrigger &&
+           share.AllowAllCommands && share.Allowed!.SequenceEqual(["/shout", "/ac"]) && share.Blocked!.SequenceEqual(["/sit"]) &&
+           !share.Protections!.Chat && share.Protections.OpenRisky!.SequenceEqual(["teleport"]) &&
+           share.Protections.OpenPlugins!.SequenceEqual(["Lifestream"]) && share.PerSenderCooldownSeconds == 30 &&
+           share.OneWaitingPerSender && share.ChoiceMode == ChoiceMode.ByWord && share.Choices!.Count == 2 &&
+           share.Choices[1].Word == "joy" && share.FinalCommands!.SequenceEqual(["/bow"]) &&
+           share.FinalWhen == FinalActionWhen.WhenNothingWaiting && share.Channels!.SequenceEqual([10, 24]),
+        "everything shareable should survive the round trip, and custom channels should be left out");
+    Assert(ShareCodeCodec.TryDecode($"  {code[..20]}\n{code[20..]}  \r\n", 1000, out _, out _),
+        "a code wrapped across lines or with spaces around it should still import");
+
+    source.NoProtections = true;
+    Assert(ShareCodeCodec.TryEncode(source, BuiltIn, 1000, out var unprotected, out turnedOn, out _) && turnedOn &&
+           !ShareJson(unprotected).Contains("NoProtections") && ShareCodeCodec.TryDecode(unprotected, 1000, out var safe, out _) &&
+           !safe.NoProtections,
+        "a trigger with no protections exports with them on, and says so");
+    source.Name = new string('n', 101);
+    Assert(!ShareCodeCodec.TryEncode(source, BuiltIn, 1000, out var none, out _, out var tooBig) && none.Length == 0 && tooBig.Length > 0,
+        "a trigger over the limits shouldn't export a code nobody can import");
+
+    AssertRefused(null, "no clipboard text should be refused");
+    AssertRefused("   ", "blank text should be refused");
+    AssertRefused("please do (dance)", "chat text should be refused", "share code");
+    AssertRefused("pmkk1." + code[6..], "the prefix is exact");
+    AssertRefused("PMKK2.abc", "a newer format should be refused", "newer");
+    AssertRefused("PMKK1.!!!!", "bad base64 should be refused", "damaged");
+    AssertRefused("PMKK1.", "an empty body should be refused");
+    AssertRefused(code[..(code.Length / 2)], "a truncated code should be refused", "damaged");
+    AssertRefused(ShareCodeCodec.Prefix + new string('A', ShareCodeCodec.MaxCodeLength), "a code over 16 KB is refused before decoding", "too long");
+    AssertRefused(ShareCodeCodec.Prefix + Convert.ToBase64String(new byte[] { 1, 2, 3, 4, 5 }), "random bytes should be refused");
+    AssertRefused(ShareCodeCodec.Pack([0xC3, 0x28, 0xFF]), "invalid UTF-8 should be refused");
+    AssertRefused(PackJson("null"), "JSON null should be refused");
+    AssertRefused(PackJson("[1,2,3]"), "a JSON array should be refused");
+    AssertRefused(PackJson("{\"v\":1"), "unfinished JSON should be refused");
+    AssertRefused(PackJson("{}"), "a code without a version should be refused");
+    AssertRefused(PackJson("{\"v\":2,\"Name\":\"x\"}"), "a newer version should be refused", "newer");
+    AssertRefused(PackJson("{\"v\":-1}"), "a negative version should be refused");
+    AssertRefused(PackJson("{\"v\":1,\"NoProtections\":true}"), "a code asking for no protections should be refused", "no protections");
+    AssertRefused(PackJson("{\"v\":1,\"CooldownSeconds\":1e40}"), "an out-of-range number should be refused");
+    AssertRefused(PackJson("{\"v\":1,\"ExecutionPolicy\":\"DeleteEverything\"}"), "an unknown enum name should be refused");
+
+    // A zip bomb: tiny code, huge JSON. Never inflated past the cap.
+    var bomb = PackJson("{\"v\":1,\"Name\":\"x\",\"Pad\":\"" + new string('a', 4 * 1024 * 1024) + "\"}");
+    Assert(bomb.Length < ShareCodeCodec.MaxCodeLength, "the bomb fits in a code");
+    AssertRefused(bomb, "JSON over 64 KB after inflating should be refused", "too large");
+    var justUnder = PackJson("{\"v\":1,\"Name\":\"x\",\"Pad\":\"" + new string('a', ShareCodeCodec.MaxJsonBytes - 40) + "\"}");
+    Assert(ShareCodeCodec.TryDecode(justUnder, 1000, out _, out _), "unknown fields under the cap are skipped");
+
+    // Deep nesting, inside an unknown field or a known one.
+    AssertRefused(PackJson("{\"v\":1,\"Pad\":" + new string('[', 50) + new string(']', 50) + "}"), "deep nesting should be refused");
+    AssertRefused(PackJson("{\"v\":1,\"Pad\":" + new string('[', 9) + new string(']', 9) + "}"), "nesting past depth 8 should be refused");
+    AssertRefused(PackJson("{\"v\":1,\"Choices\":[{\"Word\":{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{}}}}}}}]}"), "nesting in a known field should be refused");
+
+    // Type names are never followed.
+    var typed = PackJson("{\"$type\":\"System.Diagnostics.Process, System\",\"v\":1,\"Name\":\"Typed\"," +
+                         "\"Protections\":{\"$type\":\"System.IO.FileInfo, System.IO.FileSystem\",\"Chat\":true}," +
+                         "\"Choices\":[{\"$type\":\"System.Diagnostics.ProcessStartInfo, System\",\"Word\":\"a\",\"Commands\":\"/wave\"}]}");
+    Assert(ShareCodeCodec.TryDecode(typed, 1000, out var typedShare, out _) && typedShare.Name == "Typed" &&
+           typedShare.Protections!.GetType() == typeof(ShareProtections) && typedShare.Choices![0].GetType() == typeof(ShareChoice),
+        "$type should be ignored, not followed");
+
+    // Oversized strings and lists.
+    string Field(string name, string value) => PackJson($"{{\"v\":1,\"{name}\":{value}}}");
+    string Quoted(int length) => "\"" + new string('x', length) + "\"";
+    string Many(int count, string item) => "[" + string.Join(",", Enumerable.Repeat(item, count)) + "]";
+    AssertRefused(Field("Name", Quoted(101)), "a long name should be refused");
+    Assert(ShareCodeCodec.TryDecode(Field("Name", Quoted(100)), 1000, out _, out _), "a 100-character name is fine");
+    AssertRefused(Field("CustomPhrase", Quoted(1001)), "a pattern over the user's limit should be refused", "limit");
+    AssertRefused(Field("TriggerPhrase", Quoted(1001)), "a phrase over the user's limit should be refused");
+    Assert(ShareCodeCodec.TryDecode(Field("CustomPhrase", Quoted(1001)), 2000, out _, out _), "the pattern limit is the user's own");
+    AssertRefused(Field("ReplaceMatch", Quoted(501)), "long commands should be refused");
+    AssertRefused(Field("TestInput", Quoted(501)), "a long test message should be refused");
+    AssertRefused(Field("Allowed", Many(65, "\"/wave\"")), "more than 64 allowed commands should be refused");
+    AssertRefused(Field("Blocked", Many(65, "\"/wave\"")), "more than 64 blocked commands should be refused");
+    AssertRefused(Field("Allowed", "[" + Quoted(101) + "]"), "a long allowed entry should be refused");
+    AssertRefused(Field("Protections", "{\"OpenPlugins\":" + Many(65, "\"p\"") + "}"), "too many opened plugins should be refused");
+    AssertRefused(Field("Protections", "{\"OpenChat\":[" + Quoted(101) + "]}"), "a long protection key should be refused");
+    AssertRefused(Field("Channels", Many(65, "10")), "more than 64 channels should be refused");
+    AssertRefused(Field("Choices", Many(17, "{\"Word\":\"a\"}")), "more than 16 choices should be refused");
+    AssertRefused(Field("Choices", "[{\"Commands\":" + Quoted(501) + "}]"), "a long choice should be refused");
+    AssertRefused(Field("FinalCommands", Many(6, "\"/wave\"")), "more than five final commands should be refused");
+    AssertRefused(Field("FinalCommands", "[" + Quoted(501) + "]"), "a long final command should be refused");
+    Assert(ShareCodeCodec.TryDecode(Field("Allowed", "[null,\"/wave\"]"), 1000, out _, out _) &&
+           ShareCodeCodec.TryDecode(Field("Choices", "[null]"), 1000, out _, out _),
+        "null entries are tolerated (the review skips them)");
+
+    Console.WriteLine("PASS share codes");
+}
+
+static void RunShareCodeReviewTests()
+{
+    var catalog = new CommandCatalog(
+        [["/shout", "/sh"], ["/say", "/s"], ["/teleport", "/tp"], ["/action", "/ac"], ["/sit"], ["/groundsit"], ["/lounge"]],
+        [["/dance"], ["/wave"]]);
+    bool Plugin(string command) => command == "/hello";
+    bool BuiltIn(int id) => id < 200;
+    TriggerShare Decode(string json)
+    {
+        Assert(ShareCodeCodec.TryDecode(PackJson(json), 1000, out var decoded, out var error), $"fixture should decode: {error}");
+        return decoded;
+    }
+
+    var hostile = Decode("""
+        {"v":1,"Name":"Hostile","Enabled":true,"Senders":{"Anyone":true,"Named":["Test Player@World"]},
+         "ProgressNotifications":1,"UseRegex":true,"CustomPhrase":"^go (\\w+)$","ReplaceMatch":"/$1",
+         "AllowAllCommands":true,
+         "Allowed":["/shout","/SH","/tp","/hello","/nonsense","/wait","/ac","/dance",null,"  "],
+         "Blocked":["/sit"],
+         "Protections":{"Chat":false,"OpenChat":["say","bogus"],"Risky":true,"OpenRisky":["teleport"],"Plugins":false,"OpenPlugins":["Lifestream","Lifestream"]},
+         "Channels":[10,24,9999,-4,70000],
+         "Choices":[{"Word":"a","Commands":"/wave"},null],"ChoiceMode":3,"FinalCommands":["/bow"],"FinalWhen":1,
+         "ExecutionPolicy":99,"CooldownSeconds":-5,"PerSenderCooldownSeconds":999999}
+        """);
+    var configuration = new Configuration();
+    var review = new ShareCodeReview(hostile, configuration, catalog, Plugin, BuiltIn);
+
+    bool Has(ImportRiskKind kind, string key = "") => review.Risks.Exists(risk => risk.Kind == kind && risk.Key == key);
+    Assert(Has(ImportRiskKind.AnyGameCommand), "Any game command should need an OK");
+    Assert(Has(ImportRiskKind.AllowedCommand, "/shout") && Has(ImportRiskKind.AllowedCommand, "/tp") &&
+           Has(ImportRiskKind.AllowedCommand, "/hello") && Has(ImportRiskKind.AllowedCommand, "/nonsense"),
+        "chat, risky, plugin and unknown allowed commands should each need an OK");
+    Assert(!review.Risks.Exists(risk => risk.Key is "/ac" or "/dance" or "/SH"),
+        "game commands and emotes don't need an OK, and another spelling of a listed command isn't listed twice");
+    Assert(Has(ImportRiskKind.SenderWait, "/wait"), "/wait from the sender should need an OK");
+    Assert(Has(ImportRiskKind.ChatUnprotected) && Has(ImportRiskKind.ChatOpen, "say") && !Has(ImportRiskKind.ChatOpen, "bogus"),
+        "turning chat protection off, and each opened chat group, should need an OK (unknown keys open nothing)");
+    Assert(Has(ImportRiskKind.RiskyOpen, "teleport") && !Has(ImportRiskKind.RiskyUnprotected), "each opened risky group should need an OK");
+    Assert(Has(ImportRiskKind.PluginsUnprotected) && review.Risks.Count(risk => risk.Kind == ImportRiskKind.PluginOpen) == 1 &&
+           Has(ImportRiskKind.PluginOpen, "Lifestream"),
+        "turning plugin protection off, and each opened plugin (once), should need an OK");
+    Assert(Has(ImportRiskKind.Unblocked, "/groundsit") && Has(ImportRiskKind.Unblocked, "/lounge") && !Has(ImportRiskKind.Unblocked, "/sit"),
+        "each default block the code drops should need an OK");
+    Assert(review.Risks.TrueForAll(risk => !risk.Accepted), "every risk starts unticked");
+    Assert(review.SuggestedChannels.Count == 2 && review.SuggestedChannels[0] is { Id: 10, IsPublic: true, Accepted: false } &&
+           review.SuggestedChannels[1] is { Id: 24, IsPublic: false, Accepted: false },
+        "built-in channels are offered unticked (public ones marked); custom and invalid ones are dropped");
+
+    var stripped = review.Build();
+    Assert(!stripped.Enabled && !stripped.Senders.Anyone && stripped.Senders.Friends && stripped.Senders.FreeCompany &&
+           stripped.Senders.Party && stripped.Senders.Named.Count == 0,
+        "an imported trigger is off, for the default senders (never Anyone, never named players)");
+    Assert(!stripped.NoProtections && stripped.ProgressNotifications == ReactionNotificationSetting.Inherit,
+        "an imported trigger has protections and default notifications");
+    Assert(!stripped.AllowAllCommands && stripped.CommandWhitelist.SequenceEqual(["/ac", "/dance"]),
+        "unticked: only game commands and emotes stay allowed");
+    Assert(stripped.CommandBlacklist.SequenceEqual(["/sit", "/groundsit", "/lounge"]), "unticked: the default blocks come back");
+    Assert(stripped.Protections is { Chat: true, Risky: true, Plugins: true } && stripped.Protections.OpenChat.Count == 0 &&
+           stripped.Protections.OpenRisky.Count == 0 && stripped.Protections.OpenPlugins.Count == 0,
+        "unticked: every protection stays on");
+    Assert(stripped.EnabledChannels.Count == 0, "unticked: only the default channels");
+    Assert(stripped.ExecutionPolicy == ReactionExecutionPolicy.QueueEveryTrigger && stripped.CooldownSeconds == 0 &&
+           stripped.PerSenderCooldownSeconds == Reaction.MaxPerSenderCooldownSeconds && stripped.ChoiceMode == ChoiceMode.ByWord &&
+           stripped.Choices.Count == 1 && stripped.FinalCommands.SequenceEqual(["/bow"]) && stripped.FinalWhen == FinalActionWhen.WhenNothingWaiting,
+        "the imported trigger is normalized like a loaded one");
+
+    // The permission check, as it would run: nothing risky gets through unticked.
+    bool Runs(Reaction reaction, string command)
+    {
+        var canonical = catalog.Canonicalize(command);
+        var kind = catalog.Classify(command, Plugin);
+        var group = kind == CommandKind.Plugin ? "Lifestream" : catalog.GroupOf(canonical);
+        return CommandPolicy.IsAllowed(canonical, kind, catalog.CanonicalSet(reaction.CommandWhitelist),
+            catalog.CanonicalSet(reaction.CommandBlacklist), reaction.AllowAllCommands, out _, reaction.NoProtections,
+            reaction.Protections.IsOpen(kind, group));
+    }
+    Assert(!Runs(stripped, "/sh") && !Runs(stripped, "/s") && !Runs(stripped, "/tp") && !Runs(stripped, "/hello") &&
+           !Runs(stripped, "/nonsense") && !Runs(stripped, "/sit") && Runs(stripped, "/ac") && Runs(stripped, "/wave"),
+        "unticked, the imported trigger can't shout, say, teleport, use plugins or sit");
+
+    foreach (var risk in review.Risks)
+        risk.Accepted = risk.Kind == ImportRiskKind.AllowedCommand && risk.Key == "/tp";
+    var oneTicked = review.Build();
+    Assert(oneTicked.CommandWhitelist.SequenceEqual(["/tp", "/ac", "/dance"]) && Runs(oneTicked, "/tp") && !Runs(oneTicked, "/sh"),
+        "ticking one command lets only that one through");
+
+    foreach (var risk in review.Risks)
+        risk.Accepted = true;
+    foreach (var channel in review.SuggestedChannels)
+        channel.Accepted = true;
+    var all = review.Build();
+    Assert(all.AllowAllCommands && all.CommandWhitelist.SequenceEqual(["/shout", "/SH", "/tp", "/hello", "/nonsense", "/wait", "/ac", "/dance"]) &&
+           all.CommandBlacklist.SequenceEqual(["/sit"]) && all.Protections is { Chat: false, Risky: true, Plugins: false } &&
+           all.Protections.OpenChat.SequenceEqual(["say"]) && all.Protections.OpenRisky.SequenceEqual(["teleport"]) &&
+           all.Protections.OpenPlugins.SequenceEqual(["Lifestream"]) && all.EnabledChannels.SequenceEqual([10, 24]),
+        "ticked items come through as shared");
+    Assert(!all.Enabled && !all.Senders.Anyone && !all.NoProtections, "even with everything ticked it's off, not Anyone, and protected");
+
+    // Another spelling of an unticked command can't slip in.
+    var aliases = new ShareCodeReview(Decode("""{"v":1,"Allowed":["/shout"," /SH ","/ｓｈｏｕｔ","/s"]}"""), configuration, catalog, Plugin, BuiltIn);
+    Assert(aliases.Build().CommandWhitelist.Count == 0, "no spelling of an unticked command stays allowed");
+
+    // What the user's own defaults already allow isn't asked about, and is kept.
+    var trusting = new Configuration
+    {
+        DefaultAllowAllCommands = true,
+        DefaultCommandWhitelist = ["/shout"],
+        DefaultCommandBlacklist = [],
+        DefaultEnabledChannels = [24],
+        DefaultProtections = new ProtectionSettings { OpenChat = ["say"], Plugins = false },
+    };
+    var familiar = new ShareCodeReview(
+        Decode("""{"v":1,"AllowAllCommands":true,"Allowed":["/sh"],"Protections":{"OpenChat":["say"],"Plugins":false,"OpenPlugins":["Lifestream"]},"Channels":[24]}"""),
+        trusting, catalog, Plugin, BuiltIn);
+    Assert(familiar.Risks.Count == 0 && familiar.SuggestedChannels.Count == 0, "nothing past the user's own defaults: nothing to OK");
+    var familiarBuilt = familiar.Build();
+    Assert(familiarBuilt.AllowAllCommands && familiarBuilt.CommandWhitelist.SequenceEqual(["/sh"]) &&
+           familiarBuilt.Protections.OpenChat.SequenceEqual(["say"]) && !familiarBuilt.Protections.Plugins &&
+           familiarBuilt.EnabledChannels.SequenceEqual([24]),
+        "what the defaults already allow is kept");
+
+    // A code stricter than the defaults stays strict.
+    var strict = new ShareCodeReview(Decode("""{"v":1,"Protections":{"Chat":true,"Plugins":true}}"""),
+        new Configuration { DefaultCommandBlacklist = [], DefaultProtections = new ProtectionSettings { Chat = false, Plugins = false, OpenChat = ["say"] } },
+        catalog, Plugin, BuiltIn);
+    Assert(strict.Risks.Count == 0 && strict.Build().Protections is { Chat: true, Plugins: true },
+        "protections the code keeps on stay on");
+
+    var multiline = new ShareCodeReview(Decode("{\"v\":1,\"Name\":\"Wave\n\u0000party\"}"), configuration, catalog, Plugin, BuiltIn);
+    Assert(multiline.Name == "Waveparty", "control characters are taken out of the name");
+    var unnamed = new ShareCodeReview(Decode("""{"v":1,"Name":"   "}"""), configuration, catalog, Plugin, BuiltIn);
+    Assert(unnamed.Name == "Imported trigger" && unnamed.Build().TriggerPhrase == Reaction.DefaultTriggerPhrase,
+        "a blank name and phrase get defaults");
+
+    var broken = new Reaction { CommandWhitelist = null!, CooldownSeconds = -1 };
+    Assert(ConfigurationMigrator.NormalizeReaction(broken) && broken.CommandWhitelist.Count == 0 && broken.CooldownSeconds == 0,
+        "NormalizeReaction repairs one trigger");
+
+    Console.WriteLine("PASS share code review");
 }

@@ -212,6 +212,7 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
     protected override void DrawOverlays()
     {
         DrawReactionDialogs();
+        DrawImportDialog();
         DrawSettingsDialogs();
         DrawChannelPicker();
     }

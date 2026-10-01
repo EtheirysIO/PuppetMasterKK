@@ -92,8 +92,11 @@ internal sealed partial class MainWindow
     {
         var reactions = Config.Reactions;
         W.Heading("Triggers");
-        W.RightAlign(ImGui.GetFrameHeight());
+        W.RightAlign(ImGui.GetFrameHeight() * 2f + Theme.Space.Tight);
         ImGui.SetCursorPosY(ImGui.GetCursorPosY() - (ImGui.GetFrameHeight() - ImGui.GetTextLineHeight()) * 0.5f);
+        if (W.IconButton(FontAwesomeIcon.FileImport, "##importReaction", "Import a trigger from a share code you copied"))
+            OpenImport();
+        ImGui.SameLine(0f, Theme.Space.Tight);
         if (W.IconButton(FontAwesomeIcon.Plus, "##newReaction", "New trigger"))
             NewReaction();
         if (reactions.Count > 8 || reactionSearch.Length > 0)
@@ -164,7 +167,7 @@ internal sealed partial class MainWindow
         if (SelectedReaction == null)
             return 0f;
         var gap = Theme.Space.Tight;
-        return W.ToggleWidth("On##reactionOn") + gap * 2f + ImGui.GetFrameHeight() * 2f + gap;
+        return W.ToggleWidth("On##reactionOn") + gap * 2f + ImGui.GetFrameHeight() * 3f + gap * 2f;
     }
 
     private void DrawReactionHeader(HeaderSlot slot)
@@ -182,6 +185,10 @@ internal sealed partial class MainWindow
             Changed();
         }
         ImGui.SameLine(0f, gap * 2f);
+        if (W.IconButton(FontAwesomeIcon.ShareAlt, "##share",
+                         "Copy a share code for this trigger. Who can trigger it, its notifications and custom channels aren't included."))
+            CopyShareCode(reaction);
+        ImGui.SameLine(0f, gap);
         if (W.IconButton(FontAwesomeIcon.Copy, "##duplicate", "Duplicate this trigger"))
         {
             Config.Reactions.Insert(selected + 1, PluginUiLogic.CloneReaction(reaction));
