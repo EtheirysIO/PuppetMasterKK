@@ -44,7 +44,7 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
         }
     }
 
-    public MainWindow() : base("PuppetMasterKK###PuppetMasterKKMain", "PuppetMasterKK", FontAwesomeIcon.TheaterMasks, new Vector2(620, 440))
+    public MainWindow() : base("PuppetMasterKK###PuppetMasterKKWindow", "PuppetMasterKK", FontAwesomeIcon.TheaterMasks, new Vector2(620, 440))
     {
         Size = new Vector2(780, 580);
         SizeCondition = ImGuiCond.FirstUseEver;
