@@ -19,7 +19,6 @@ namespace PuppetMasterKK
 {
     public partial class ChatHandler
     {
-        private const string FollowCommand = "/follow";
         private static readonly ReactionExecutionGate ExecutionGate = new();
         private static readonly ConcurrentDictionary<long, Task> ActiveTasks = new();
         private static readonly ConcurrentDictionary<Reaction, CancellationTokenSource> ActiveReactionCancellations =
@@ -54,8 +53,7 @@ namespace PuppetMasterKK
             SenderFilter Senders,
             Regex Pattern,
             string Replacement,
-            bool TemplateHasWait,
-            SenderInfo Sender);
+            bool TemplateHasWait);
 
         private sealed record ChatEnvelope(XivChatType Type, string Message, List<ReactionSnapshot> Reactions);
         private sealed record PendingRetrigger(
@@ -204,8 +202,7 @@ namespace PuppetMasterKK
         private static ReactionSnapshot? CreateSnapshot(
             Reaction reaction,
             bool showNotifications,
-            bool showSuppressionNotifications,
-            SenderInfo sender)
+            bool showSuppressionNotifications)
         {
             if (!reaction.Enabled)
                 return null;
@@ -231,8 +228,7 @@ namespace PuppetMasterKK
                 (reaction.Senders ?? SenderFilter.AnyoneFilter()).Clone(),
                 pattern,
                 reaction.UseRegex ? reaction.ReplaceMatch : Service.GetDefaultReplaceMatch(),
-                ReactionCommandMatcher.TemplateHasWait(reaction.UseRegex ? reaction.ReplaceMatch : Service.GetDefaultReplaceMatch()),
-                sender);
+                ReactionCommandMatcher.TemplateHasWait(reaction.UseRegex ? reaction.ReplaceMatch : Service.GetDefaultReplaceMatch()));
         }
 
         private static void Track(Task task)
@@ -356,17 +352,7 @@ namespace PuppetMasterKK
                                     if (cancellation.IsCancellationRequested)
                                         return;
                                     try
-                                    {
-                                        // A bare "/follow" follows whoever sent the line: target them first (the game's
-                                        // /follow needs a target), as Follow mode does.
-                                        if (textCommand.Args.Length == 0 &&
-                                            canonical == catalog.Canonicalize(FollowCommand))
-                                        {
-                                            if (!FollowMode.FollowSender(reaction.Sender))
-                                                Service.PluginLog.Information("{Trigger}: {Sender} isn't nearby, so there's nobody to follow.",
-                                                                              reaction.Name, reaction.Sender.Name);
-                                            return;
-                                        }
+                                {
                                         Chat.SendMessage(textCommand.ToString());
                                     }
                                     catch (Exception ex)
@@ -804,18 +790,19 @@ namespace PuppetMasterKK
                 if (!reaction.Enabled || !reaction.EnabledChannels.Contains((int)type))
                     continue;
 
-                // Who sent it: for the sender filter, ignoring your own lines, and "/follow" (follow the sender).
-                senderInfo ??= SenderResolver.FromChat(type, sender, seMessage);
-                if (configuration.IgnoreOwnMessages && senderInfo.Value.IsSelf)
-                    return;
-                if (reaction.Senders != null && !reaction.Senders.Allows(senderInfo.Value))
-                    continue;
+                if (configuration.IgnoreOwnMessages || reaction.Senders?.NeedsSender == true)
+                {
+                    senderInfo ??= SenderResolver.FromChat(type, sender, seMessage);
+                    if (configuration.IgnoreOwnMessages && senderInfo.Value.IsSelf)
+                        return;
+                    if (reaction.Senders != null && !reaction.Senders.Allows(senderInfo.Value))
+                        continue;
+                }
 
                 var snapshot = CreateSnapshot(
                     reaction,
                     configuration.ShowReactionNotifications,
-                    configuration.ShowSuppressedReactionNotifications,
-                    senderInfo.Value);
+                    configuration.ShowSuppressedReactionNotifications);
                 if (snapshot != null)
                     (snapshots ??= []).Add(snapshot);
             }

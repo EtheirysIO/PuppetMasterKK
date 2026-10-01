@@ -67,42 +67,9 @@ internal static class FollowMode
         if (requested.Name.Length == 0)
             return;
 
-        if (!FindNearby(requested, out var target, out var character))
-        {
-            ReplyNotNearby(who, shownName, settings);
-            return;
-        }
-        if (!FollowParser.MayFollow(target, settings.OnlyFollow, settings.NeverFollow))
-        {
-            Service.PluginLog.Information("Not following {Target}: blocked by the follow lists.", target.Name);
-            return;
-        }
-        if (!CommandRateLimiter.Shared.TryAcquire(Stopwatch.GetTimestamp()))
-        {
-            Service.PluginLog.Debug("Follow request for {Target} dropped: sending too fast.", target.Name);
-            return;
-        }
-        TargetThenFollow(character, target.Name);
-    }
-
-    // A trigger's bare "/follow" means "follow whoever sent this": the same targeting as Follow mode. False when that
-    // player isn't nearby (nothing is sent then). The caller has already taken a rate-limit slot.
-    public static bool FollowSender(SenderInfo sender)
-    {
-        if (sender.IsSelf || sender.Name.Length == 0 ||
-            !FindNearby(new PlayerName(sender.Name, sender.World), out var target, out var character))
-            return false;
-        TargetThenFollow(character, target.Name);
-        return true;
-    }
-
-    private static bool FindNearby(PlayerName requested, out PlayerName found, out IPlayerCharacter character)
-    {
-        found = default;
-        character = null!;
         var local = Service.ObjectTable.LocalPlayer;
-        if (local == null || requested.Name.Length == 0)
-            return false;
+        if (local == null)
+            return;
 
         // Who's around (other players only).
         var nearby = new List<PlayerName>();
@@ -117,19 +84,30 @@ internal static class FollowMode
 
         var index = FollowParser.FindNearby(requested, nearby);
         if (index < 0)
-            return false;
-        found = nearby[index];
-        character = characters[index];
-        return true;
-    }
+        {
+            ReplyNotNearby(who, shownName, settings);
+            return;
+        }
 
-    // Target first. The game takes the new target on a later frame, so /follow goes out a moment after, as
-    // "/follow <t>" (the game's own "my current target"), and only if the target is still that player.
-    private static void TargetThenFollow(IPlayerCharacter character, string name)
-    {
+        var target = nearby[index];
+        if (!FollowParser.MayFollow(target, settings.OnlyFollow, settings.NeverFollow))
+        {
+            Service.PluginLog.Information("Not following {Target}: blocked by the follow lists.", target.Name);
+            return;
+        }
+
+        if (!CommandRateLimiter.Shared.TryAcquire(Stopwatch.GetTimestamp()))
+        {
+            Service.PluginLog.Debug("Follow request for {Target} dropped: sending too fast.", target.Name);
+            return;
+        }
+
+        // Target first. The game takes the new target on a later frame, so /follow goes out a moment after, as
+        // "/follow <t>" (the game's own "my current target"), and only if the target is still that player.
+        var character = characters[index];
         var targetId = character.GameObjectId;
         Service.TargetManager.Target = character;
-        _ = Service.Framework.RunOnTick(() => SendFollow(targetId, name), TimeSpan.FromMilliseconds(150));
+        _ = Service.Framework.RunOnTick(() => SendFollow(targetId, target.Name), TimeSpan.FromMilliseconds(150));
     }
 
     private static void SendFollow(ulong targetId, string name)
