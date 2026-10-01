@@ -13,6 +13,9 @@ internal sealed partial class MainWindow
     private int settingsTab;
     private string defaultAllowInput = string.Empty;
     private string defaultBlockInput = string.Empty;
+    private int newChannelId;
+    private string newChannelName = string.Empty;
+    private string? newChannelError;
     // Custom channel numbers being typed, applied when the field is left (an invalid one is put back).
     private readonly Dictionary<ChannelSetting, int> channelIdDrafts = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ChannelSetting, string> channelIdErrors = new(ReferenceEqualityComparer.Instance);
@@ -99,18 +102,23 @@ internal sealed partial class MainWindow
             var mode = Config.DefaultAllowAllCommands ? 1 : 0;
             if (W.Segmented("##defaultCommandMode", CommandModes, ref mode, W.SegmentedWidth(CommandModes)))
             {
-                Config.DefaultAllowAllCommands = mode == 1;
-                Changed();
-            }
-            if (!Config.DefaultAllowAllCommands)
-            {
-                Gap();
-                W.Heading("Allowed");
-                if (StringListEditor("defaultAllow", Config.DefaultCommandWhitelist, ref defaultAllowInput, "/command",
-                                     "None. Emotes still run.",
-                                     input => PluginUiLogic.AddCommandRule(Config.DefaultCommandWhitelist, Config.DefaultCommandBlacklist, input)))
+                if (mode == 1)
+                {
+                    allowAllTarget = null; // null: the defaults for new reactions
+                    confirmAllowAll = true;
+                }
+                else
+                {
+                    Config.DefaultAllowAllCommands = false;
                     Changed();
+                }
             }
+            Gap();
+            W.Heading(Config.DefaultAllowAllCommands ? "Also allowed (chat and plugin commands)" : "Allowed");
+            if (StringListEditor("defaultAllow", Config.DefaultCommandWhitelist, ref defaultAllowInput, "/command",
+                                 Config.DefaultAllowAllCommands ? "None." : "None. Emotes still run.",
+                                 input => PluginUiLogic.AddCommandRule(Config.DefaultCommandWhitelist, Config.DefaultCommandBlacklist, input)))
+                Changed();
             Gap();
             W.Heading("Blocked");
             if (StringListEditor("defaultBlock", Config.DefaultCommandBlacklist, ref defaultBlockInput, "/command", "Nothing blocked.",
@@ -191,14 +199,34 @@ internal sealed partial class MainWindow
                 Changed();
             }
 
-            Gap();
-            if (W.IconTextButton(FontAwesomeIcon.Plus, "Add channel", ButtonKind.Secondary))
+            W.Divider(Theme.S(6f));
+            Label("Add a channel");
+            ImGui.SetNextItemWidth(Theme.S(120f));
+            ImGui.InputInt("##newChannelId", ref newChannelId, 0, 0);
+            if (ImGui.IsItemHovered())
+                W.Tooltip("The log type number");
+            ImGui.SameLine(0f, Theme.Space.Tight);
+            var addW = W.ButtonWidth("Add", FontAwesomeIcon.Plus);
+            W.TextInput("##newChannelName", ref newChannelName, "Name", -(addW + Theme.Space.Tight), 64);
+            ImGui.SameLine(0f, Theme.Space.Tight);
+            if (W.IconTextButton(FontAwesomeIcon.Plus, "Add##addChannel", ButtonKind.Secondary, new Vector2(addW, ImGui.GetFrameHeight())))
             {
-                var channel = new ChannelSetting { ChatType = -1, Name = "Custom" };
-                channels.Add(channel);
-                channelIdErrors[channel] = "Type the log type number.";
-                Changed();
+                var channel = new ChannelSetting
+                {
+                    ChatType = newChannelId,
+                    Name = string.IsNullOrWhiteSpace(newChannelName) ? $"Custom {newChannelId}" : newChannelName.Trim(),
+                };
+                newChannelError = PluginUiLogic.ValidateCustomChannelId(channel, newChannelId, Config.CustomChannels, IsOfficialChannel);
+                if (newChannelError == null)
+                {
+                    channels.Add(channel);
+                    newChannelId = 0;
+                    newChannelName = string.Empty;
+                    Changed();
+                }
             }
+            if (newChannelError != null)
+                W.TextWrapped(newChannelError, Theme.Negative);
         }
     }
 

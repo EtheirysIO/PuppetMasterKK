@@ -13,16 +13,17 @@ namespace PuppetMaster;
 // the friend list, FC member list, party list and object table.
 internal static unsafe class SenderResolver
 {
-    public static SenderInfo FromChat(XivChatType type, SeString sender)
+    public static SenderInfo FromChat(XivChatType type, SeString sender, SeString message)
     {
-        PlayerPayload? player = null;
-        foreach (var payload in sender.Payloads)
+        var player = FirstPlayer(sender);
+        var isEmoteLine = type == XivChatType.StandardEmote;
+        if (player == null && isEmoteLine)
         {
-            if (payload is PlayerPayload found)
-            {
-                player = found;
-                break;
-            }
+            // Standard emote lines have no sender: the player is a link inside the message ("Name waves.").
+            player = FirstPlayer(message);
+            // Your own emote lines ("You wave.") carry no player at all.
+            if (player == null)
+                return SenderInfo.Unknown with { IsSelf = true };
         }
 
         string name;
@@ -56,9 +57,19 @@ internal static unsafe class SenderResolver
         var isParty = type is XivChatType.Party or XivChatType.CrossParty or XivChatType.Alliance ||
                       IsInPartyList(name, worldId) ||
                       (nearby != null && (nearby.StatusFlags & (StatusFlags.PartyMember | StatusFlags.AllianceMember)) != 0);
-        var isFreeCompany = type == XivChatType.FreeCompany || IsFreeCompanyMember(name, worldId, nearby);
+        var isFreeCompany = type == XivChatType.FreeCompany || IsFreeCompanyMember(name, worldId);
         var isFriend = IsFriend(name, worldId) || (nearby != null && (nearby.StatusFlags & StatusFlags.Friend) != 0);
         return new SenderInfo(name, world, isSelf, isFriend, isFreeCompany, isParty);
+    }
+
+    private static PlayerPayload? FirstPlayer(SeString text)
+    {
+        foreach (var payload in text.Payloads)
+        {
+            if (payload is PlayerPayload found)
+                return found;
+        }
+        return null;
     }
 
     public static SenderInfo FromCharacter(IPlayerCharacter character)
@@ -72,7 +83,7 @@ internal static unsafe class SenderResolver
             world,
             IsLocalPlayer(name, worldId),
             (flags & StatusFlags.Friend) != 0 || IsFriend(name, worldId),
-            IsFreeCompanyMember(name, worldId, character),
+            IsFreeCompanyMember(name, worldId),
             (flags & (StatusFlags.PartyMember | StatusFlags.AllianceMember)) != 0 || IsInPartyList(name, worldId));
     }
 
@@ -95,22 +106,14 @@ internal static unsafe class SenderResolver
         return entry != null && !entry->WaitingForFriendListApproval;
     }
 
-    private static bool IsFreeCompanyMember(string name, uint worldId, IPlayerCharacter? nearby)
+    // Only the game's member list counts (it's filled once the FC member list has been opened this session). An FC tag
+    // isn't proof: another FC can use the same tag.
+    private static bool IsFreeCompanyMember(string name, uint worldId)
     {
         if (worldId == 0)
             return false;
-        // The member list is only filled once the FC window has been opened this session.
         var members = InfoProxyFreeCompanyMember.Instance();
-        if (members != null && members->GetEntryByName(name, (ushort)worldId) != null)
-            return true;
-        // Otherwise a nearby player wearing your FC tag on your home world counts.
-        var local = Service.ObjectTable.LocalPlayer;
-        if (nearby == null || local == null)
-            return false;
-        var tag = local.CompanyTag.TextValue;
-        return tag.Length > 0 &&
-               nearby.HomeWorld.RowId == local.HomeWorld.RowId &&
-               tag.Equals(nearby.CompanyTag.TextValue, StringComparison.Ordinal);
+        return members != null && members->GetEntryByName(name, (ushort)worldId) != null;
     }
 
     private static bool IsInPartyList(string name, uint worldId)

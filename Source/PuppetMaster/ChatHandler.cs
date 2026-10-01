@@ -305,7 +305,7 @@ namespace PuppetMaster
                     if (reaction.MotionOnly && catalog.IsEmote(canonical))
                         textCommand.Args = "motion";
 
-                    if (canonical == CommandPolicy.WaitCommand)
+                    if (CommandCatalog.Normalize(textCommand.Main) == CommandPolicy.WaitCommand)
                     {
                         // Plugin-internal pause, not a game command: no allow-list entry needed, but a block entry
                         // still turns it off.
@@ -315,40 +315,46 @@ namespace PuppetMaster
                     }
                     else
                     {
-                        // One shared limit on everything Puppet Master sends.
-                        var delay = CommandRateLimiter.Shared.Reserve(Stopwatch.GetTimestamp());
-                        if (delay > TimeSpan.Zero)
-                            await Task.Delay(delay, cancellation.Token);
-
                         try
                         {
-                            // The permission check and the send both happen on the framework thread: the check reads
-                            // the registered plugin commands, and Chat.SendMessage must run there.
-                            await Service.Framework.RunOnFrameworkThread(() =>
+                            // The permission check runs on the framework thread (it reads the registered plugin
+                            // commands), before a send slot is taken: blocked lines must not use up the rate limit.
+                            var allowed = await Service.Framework.RunOnFrameworkThread(() =>
                             {
-                                if (cancellation.IsCancellationRequested)
-                                    return;
                                 var kind = catalog.Classify(textCommand.Main, Service.IsPluginCommand);
-                                if (!CommandPolicy.IsAllowed(
+                                if (CommandPolicy.IsAllowed(
                                         canonical,
                                         kind,
                                         reaction.CommandWhitelist,
                                         reaction.CommandBlacklist,
                                         reaction.AllowAllCommands,
                                         out var permissionReason))
-                                {
-                                    Service.PluginLog.Debug("{Reaction}: {Command} blocked: {Reason}", reaction.Name, textCommand.Main, permissionReason);
-                                    return;
-                                }
-                                try
-                                {
-                                    Chat.SendMessage(textCommand.ToString());
-                                }
-                                catch (Exception ex)
-                                {
-                                    Service.ChatGui.PrintError($"[PuppetMaster] Failed to send command {textCommand}: {ex.Message}");
-                                }
+                                    return true;
+                                Service.PluginLog.Debug("{Reaction}: {Command} blocked: {Reason}", reaction.Name, textCommand.Main, permissionReason);
+                                return false;
                             });
+
+                            if (allowed)
+                            {
+                                // One shared limit on everything Puppet Master sends.
+                                var delay = CommandRateLimiter.Shared.Reserve(Stopwatch.GetTimestamp());
+                                if (delay > TimeSpan.Zero)
+                                    await Task.Delay(delay, cancellation.Token);
+
+                                await Service.Framework.RunOnFrameworkThread(() =>
+                                {
+                                    if (cancellation.IsCancellationRequested)
+                                        return;
+                                    try
+                                {
+                                        Chat.SendMessage(textCommand.ToString());
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Service.ChatGui.PrintError($"[PuppetMaster] Failed to send command {textCommand}: {ex.Message}");
+                                    }
+                                });
+                            }
                             cancellation.Token.ThrowIfCancellationRequested();
                         }
                         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
@@ -755,7 +761,7 @@ namespace PuppetMaster
 
             try
             {
-                EnqueueMessage(type, sender, message.ToString());
+                EnqueueMessage(type, sender, message);
             }
             catch (Exception ex)
             {
@@ -764,8 +770,9 @@ namespace PuppetMaster
         }
 
         // Framework thread: the sender is resolved here, from the game's friend, FC and party lists.
-        private static void EnqueueMessage(XivChatType type, SeString sender, string message)
+        private static void EnqueueMessage(XivChatType type, SeString sender, SeString seMessage)
         {
+            var message = seMessage.ToString();
             List<ReactionSnapshot>? snapshots = null;
             SenderInfo? senderInfo = null;
             var configuration = Service.configuration!;
@@ -776,7 +783,7 @@ namespace PuppetMaster
 
                 if (configuration.IgnoreOwnMessages || reaction.Senders?.NeedsSender == true)
                 {
-                    senderInfo ??= SenderResolver.FromChat(type, sender);
+                    senderInfo ??= SenderResolver.FromChat(type, sender, seMessage);
                     if (configuration.IgnoreOwnMessages && senderInfo.Value.IsSelf)
                         return;
                     if (reaction.Senders != null && !reaction.Senders.Allows(senderInfo.Value))

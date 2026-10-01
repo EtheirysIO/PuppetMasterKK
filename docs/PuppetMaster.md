@@ -117,7 +117,7 @@ Each reaction chooses who can set it off:
 
 - **Anyone** — every player who can talk in the picked channels.
 - **Friends** — players on your friend list.
-- **Free Company** — your FC chat, FC members the game has listed this session (open the FC member list once), and nearby players wearing your FC tag.
+- **Free Company** — your FC chat, and FC members the game has listed this session (open the FC member list once). An FC tag alone doesn't count: other FCs can use the same tag.
 - **Party and alliance** — your party and alliance, and their chat channels.
 - **Also these players** — named players, as `Name@World`, or just `Name` for any world.
 
@@ -132,7 +132,7 @@ Your own chat lines never trigger reactions (**Settings → General → Ignore m
 1. Commands under **Blocked** never run.
 2. Emotes run unless they're blocked.
 3. Other commands must be under **Allowed**, unless **Any game command** is selected.
-4. Chat commands (say, shout, tell, party, FC, linkshells, `/em`…) and other plugins' commands only run when listed under **Allowed**, even with **Any game command**.
+4. Chat commands (say, shout, tell, party, FC, linkshells, `/em`…) and other plugins' commands only run when listed under **Allowed** (shown as **Also allowed** with **Any game command**).
 5. `/logout`, `/shutdown`, `/puppetmaster` and Dalamud's `/xl…` commands never run.
 
 Rules apply to the command name, not its arguments: for the Vercure example, allow `/ac`. A command's short forms count as the same command, so blocking `/shout` also blocks `/sh`.
@@ -307,7 +307,7 @@ Reactions may share a name. Name-based commands affect every exact, case-sensiti
 <details>
 <summary>Backups and unreadable settings</summary>
 
-When Puppet Master upgrades settings from an older version, it first saves a dated backup next to them. If the settings file can't be read at all (damaged, or from a newer version), it's copied aside as an `unreadable` backup, Puppet Master starts with defaults, and a notification says where the old file is.
+When Puppet Master upgrades settings from an older version, it first saves a dated backup next to them. If the settings file can't be read at all (damaged, or from a newer version), it's copied aside as an `unreadable` backup, Puppet Master starts with defaults, and a notification says where the old file is. If even the copy fails, nothing is saved for the rest of the session, so the file is never overwritten.
 
 </details>
 

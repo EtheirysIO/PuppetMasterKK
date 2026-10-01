@@ -12,6 +12,8 @@ internal enum CommandKind
     Game,
     Chat,
     Plugin,
+    // Never runs, whatever the reaction allows (logout, shutdown, Puppet Master's and Dalamud's own commands).
+    Blocked,
 }
 
 // Every form the game accepts for a text command (command, short form, aliases) mapped to one canonical name, plus
@@ -32,13 +34,19 @@ internal sealed class CommandCatalog
         "/cwl1", "/cwl2", "/cwl3", "/cwl4", "/cwl5", "/cwl6", "/cwl7", "/cwl8",
     ];
 
+    // English names of the commands that never run. The catalog maps them to the client's own names (the game
+    // knows each command by its English name as well), so the block holds on every client language.
+    private static readonly string[] AlwaysBlockedForms = ["/logout", "/shutdown", "/puppetmaster"];
+
     private readonly Dictionary<string, string> canonical = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> emotes = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> chat = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> blocked = new(StringComparer.OrdinalIgnoreCase);
 
     public static CommandCatalog Empty { get; } = new([], []);
 
-    // gameCommands: each entry is every non-empty form of one command, the canonical form first.
+    // gameCommands: each entry is every non-empty form of one command (the client's names and the English ones), the
+    // canonical form first.
     public CommandCatalog(IEnumerable<string[]> gameCommands, IEnumerable<string[]> emoteCommands)
     {
         foreach (var forms in gameCommands)
@@ -51,6 +59,14 @@ internal sealed class CommandCatalog
         }
         foreach (var form in ChatCommandForms)
             chat.Add(Canonicalize(form));
+        foreach (var form in AlwaysBlockedForms)
+            blocked.Add(Canonicalize(form));
+    }
+
+    // canonicalCommand must come from Canonicalize.
+    public bool IsAlwaysBlocked(string canonicalCommand)
+    {
+        return blocked.Contains(canonicalCommand) || CommandPolicy.IsAlwaysBlocked(canonicalCommand);
     }
 
     public int EmoteCount => emotes.Count;
@@ -94,6 +110,8 @@ internal sealed class CommandCatalog
     public CommandKind Classify(string command, Func<string, bool>? isPluginCommand = null)
     {
         var main = Canonicalize(command);
+        if (IsAlwaysBlocked(main) || CommandPolicy.IsAlwaysBlocked(Normalize(command)))
+            return CommandKind.Blocked;
         if (emotes.Contains(main))
             return CommandKind.Emote;
         if (chat.Contains(main))
@@ -138,7 +156,7 @@ internal static class CommandPolicy
         bool allowAllGameCommands,
         out string reason)
     {
-        if (IsAlwaysBlocked(canonicalCommand))
+        if (kind == CommandKind.Blocked || IsAlwaysBlocked(canonicalCommand))
         {
             reason = "always blocked";
             return false;

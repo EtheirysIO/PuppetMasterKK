@@ -136,7 +136,9 @@ internal sealed partial class MainWindow
                 }
                 finally
                 {
-                    clipper.Destroy();
+                    // Destroy ends the clipper; while the kit is unwinding a throw, its recovery ends the table instead.
+                    if (!KitRecovery.Unwinding)
+                        clipper.Destroy();
                 }
             }
         }

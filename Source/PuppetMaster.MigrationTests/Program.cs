@@ -1063,6 +1063,17 @@ static void RunCommandPolicyTests()
     Assert(catalog.Classify("/ac") == CommandKind.Game, "action should classify as a game command");
     Assert(catalog.Classify("/hello", cmd => cmd == "/hello") == CommandKind.Plugin, "registered plugin commands should classify as plugin");
     Assert(catalog.Classify("/hello") == CommandKind.Unknown, "unregistered commands should be unknown");
+    Assert(catalog.Classify("/logout") == CommandKind.Blocked && catalog.Classify("/xlsettings", _ => true) == CommandKind.Blocked,
+        "logout and Dalamud's commands should classify as always blocked");
+
+    // A German client: the row's own name plus its English name. The English block must still hold.
+    var german = new CommandCatalog([["/abmelden", "/logout"], ["/sagen", "/say", "/s"]], []);
+    Assert(german.Classify("/abmelden") == CommandKind.Blocked && german.Classify("/logout") == CommandKind.Blocked,
+        "the always-blocked commands should be blocked by their client name too");
+    Assert(german.Classify("/sagen") == CommandKind.Chat, "chat commands should be recognized by their client name");
+    Assert(!CommandPolicy.IsAllowed(german.Canonicalize("/abmelden"), german.Classify("/abmelden"),
+            german.CanonicalSet(["/abmelden"]), german.CanonicalSet([]), true, out _),
+        "a localized logout should never run, even when listed and with any game command allowed");
 
     var none = catalog.CanonicalSet([]);
     bool Allowed(string command, IEnumerable<string> allow, IEnumerable<string> block, bool allowAll, Func<string, bool>? plugin = null) =>

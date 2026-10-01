@@ -40,9 +40,9 @@ namespace PuppetMaster
 
                 // The UI kit hooks UiBuilder.Draw before our own handler, so its per-frame work runs first.
                 var config = Service.configuration!;
+                kitInitialized = true; // before the call: Kit.Dispose also cleans up after a partial Initialize
                 phys1ksUI.Kit.Initialize(pluginInterface, Service.PluginLog, Service.TextureProvider, Service.DataManager,
                                          config.TextScale, config.Accent, config.Colorblind);
-                kitInitialized = true;
                 mainWindow = new MainWindow();
                 windowSystem.AddWindow(mainWindow);
 

@@ -157,8 +157,15 @@ namespace PuppetMaster
             this.pluginInterface = pluginInterface;
         }
 
+        // Set when the file on disk couldn't be read or copied aside: this session runs on defaults and must never
+        // write over the user's only copy.
+        [JsonIgnore]
+        public bool ReadOnlySession { get; set; }
+
         public void Save()
         {
+            if (ReadOnlySession)
+                return;
             this.pluginInterface!.SavePluginConfig(this);
         }
     }

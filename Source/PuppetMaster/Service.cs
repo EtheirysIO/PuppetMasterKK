@@ -38,23 +38,34 @@ namespace PuppetMaster
 
         public static void InitializeCommands()
         {
-            var gameCommands = new List<string[]>();
-            var textCommands = DataManager.GetExcelSheet<TextCommand>();
-            if (textCommands != null)
+            // Each command's names on this client, plus its English names: block and allow entries written in
+            // English (and the built-in blocks) then mean the same command on every client language.
+            var english = new Dictionary<uint, string[]>();
+            try
             {
-                foreach (var row in textCommands)
-                    gameCommands.Add(CommandForms(row));
+                foreach (var row in DataManager.GetExcelSheet<TextCommand>(Dalamud.Game.ClientLanguage.English))
+                    english[row.RowId] = CommandForms(row);
+            }
+            catch (Exception ex)
+            {
+                PluginLog.Warning(ex, "Could not read the English command names.");
             }
 
-            var emoteCommands = new List<string[]>();
-            var emotes = DataManager.GetExcelSheet<Emote>();
-            if (emotes != null)
+            string[] Forms(TextCommand row)
             {
-                foreach (var emote in emotes)
-                {
-                    if (emote.TextCommand.ValueNullable is { } command)
-                        emoteCommands.Add(CommandForms(command));
-                }
+                var forms = CommandForms(row);
+                return english.TryGetValue(row.RowId, out var extra) ? [.. forms, .. extra] : forms;
+            }
+
+            var gameCommands = new List<string[]>();
+            foreach (var row in DataManager.GetExcelSheet<TextCommand>())
+                gameCommands.Add(Forms(row));
+
+            var emoteCommands = new List<string[]>();
+            foreach (var emote in DataManager.GetExcelSheet<Emote>())
+            {
+                if (emote.TextCommand.ValueNullable is { } command)
+                    emoteCommands.Add(Forms(command));
             }
 
             Commands = new CommandCatalog(gameCommands, emoteCommands);
@@ -207,7 +218,7 @@ namespace PuppetMaster
         {
             var catalog = Commands;
             var canonical = catalog.Canonicalize(command);
-            if (canonical == CommandPolicy.WaitCommand)
+            if (CommandCatalog.Normalize(command) == CommandPolicy.WaitCommand)
             {
                 var blocked = catalog.CanonicalSet(reaction.CommandBlacklist).Contains(CommandPolicy.WaitCommand);
                 reason = blocked ? "blocked by this reaction" : "pause";
@@ -299,8 +310,8 @@ namespace PuppetMaster
             configuration = new Configuration();
             configuration.Initialize(PluginInterface);
             PrepareConfigurationForUse();
-            if (loadError == null || preservedPath != null)
-                configuration.Save();
+            configuration.ReadOnlySession = loadError != null && preservedPath == null;
+            configuration.Save();
 
             if (loadError != null)
             {
@@ -309,7 +320,7 @@ namespace PuppetMaster
                     Title = "Puppet Master",
                     Content = preservedPath != null
                         ? $"Your settings could not be read, so Puppet Master started with defaults.\nThe old file was kept at:\n{preservedPath}"
-                        : "Your settings could not be read, so Puppet Master is using defaults for this session and will not overwrite the file.",
+                        : "Your settings could not be read, so Puppet Master is using defaults for this session. Changes won't be saved, so the file isn't overwritten.",
                     Type = Dalamud.Interface.ImGuiNotification.NotificationType.Error,
                     InitialDuration = TimeSpan.FromSeconds(20),
                 });

@@ -200,13 +200,23 @@ internal sealed partial class MainWindow
             Select(next);
 
         if (Modal.Confirm("Allow any game command##confirmAllowAll", ref confirmAllowAll,
-                          "Let this reaction run any game command that isn't blocked?", "Allow",
+                          allowAllTarget == null
+                              ? "Let new reactions run any game command that isn't blocked?"
+                              : "Let this reaction run any game command that isn't blocked?", "Allow",
                           detail: "Chat and plugin commands still have to be listed one by one, and /logout, /shutdown, " +
                                   "/puppetmaster and /xl… never run. Use this only with senders and channels you trust.") &&
-            allowAllTarget != null)
+            true)
         {
-            allowAllTarget.AllowAllCommands = true;
-            RulesChanged(allowAllTarget);
+            if (allowAllTarget != null)
+            {
+                allowAllTarget.AllowAllCommands = true;
+                RulesChanged(allowAllTarget);
+            }
+            else
+            {
+                Config.DefaultAllowAllCommands = true;
+                Changed();
+            }
         }
         if (!confirmAllowAll)
             allowAllTarget = null;
@@ -306,6 +316,9 @@ internal sealed partial class MainWindow
             if (W.Toggle("Anyone##anyone", ref anyone, tooltip: "Every player who can talk in the picked channels"))
             {
                 senders.Anyone = anyone;
+                // Leaving Anyone with nothing else picked would let nobody trigger it: start from the safe groups.
+                if (!anyone && !senders.Friends && !senders.FreeCompany && !senders.Party && senders.Named.Count == 0)
+                    senders.Friends = senders.FreeCompany = senders.Party = true;
                 changed();
             }
 
@@ -321,7 +334,7 @@ internal sealed partial class MainWindow
                 ImGui.SameLine(0f, Theme.S(20f));
                 var fc = senders.FreeCompany;
                 if (W.Toggle("Free Company##fc", ref fc,
-                             tooltip: "Your FC chat, FC members the game has listed this session, and nearby players with your FC tag"))
+                             tooltip: "Your FC chat, and FC members the game has listed this session (open the FC member list once)"))
                 {
                     senders.FreeCompany = fc;
                     changed();
@@ -394,14 +407,13 @@ internal sealed partial class MainWindow
                 }
             }
 
-            if (!reaction.AllowAllCommands)
-            {
-                Gap();
-                W.Heading("Allowed");
-                if (StringListEditor("allow", reaction.CommandWhitelist, ref allowInput, "/command", "None. Emotes still run.",
-                                     input => PluginUiLogic.AddCommandRule(reaction.CommandWhitelist, reaction.CommandBlacklist, input)))
-                    RulesChanged(reaction);
-            }
+            // Shown in both modes: with "Any game command", chat and plugin commands still have to be listed here.
+            Gap();
+            W.Heading(reaction.AllowAllCommands ? "Also allowed (chat and plugin commands)" : "Allowed");
+            if (StringListEditor("allow", reaction.CommandWhitelist, ref allowInput, "/command",
+                                 reaction.AllowAllCommands ? "None." : "None. Emotes still run.",
+                                 input => PluginUiLogic.AddCommandRule(reaction.CommandWhitelist, reaction.CommandBlacklist, input)))
+                RulesChanged(reaction);
 
             Gap();
             W.Heading("Blocked");
