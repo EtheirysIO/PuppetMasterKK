@@ -15,6 +15,7 @@ namespace PuppetMaster
         public ConfigWindow configWindow = null!;
         internal ReactionVisualizerWindow visualizerWindow = null!;
         internal MessageLogWindow messageLogWindow = null!;
+        internal EmoteReplies? emoteReplies;
 
         private bool commandRegistered;
         private bool chatSubscribed;
@@ -47,6 +48,17 @@ namespace PuppetMaster
                 // Start work and subscribe to events last, so a failure above leaves nothing running.
                 ChatHandler.Initialize();
                 chatHandlerStarted = true;
+                emoteReplies = new EmoteReplies();
+                if (Service.CopycatImportedEnabled)
+                {
+                    Service.NotificationManager.AddNotification(new Dalamud.Interface.ImGuiNotification.Notification
+                    {
+                        Title = "Puppet Master",
+                        Content = "Emote replies are now part of Puppet Master, and your Right Back At You settings were brought over.\nDisable or remove Right Back At You so emotes aren't answered twice.",
+                        Type = Dalamud.Interface.ImGuiNotification.NotificationType.Info,
+                        InitialDuration = TimeSpan.FromSeconds(20),
+                    });
+                }
                 Service.CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
                 {
                     HelpMessage = @"Open settings dialog
@@ -94,6 +106,11 @@ namespace PuppetMaster
             {
                 Safe(() => Service.CommandManager.RemoveHandler(CommandName));
                 commandRegistered = false;
+            }
+            if (emoteReplies != null)
+            {
+                Safe(emoteReplies.Dispose);
+                emoteReplies = null;
             }
             if (chatHandlerStarted)
             {

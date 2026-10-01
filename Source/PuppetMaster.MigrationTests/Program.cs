@@ -1185,5 +1185,10 @@ static void RunRateLimiterTests()
     Assert(limiter.Reserve(later) == TimeSpan.Zero, "credit should come back after a quiet minute");
     Assert(limiter.Reserve(later) == TimeSpan.Zero && limiter.Reserve(later) == TimeSpan.Zero && limiter.Reserve(later) > TimeSpan.Zero,
         "credit should never exceed the burst size");
+
+    var skipper = new CommandRateLimiter(2, TimeSpan.FromSeconds(1));
+    Assert(skipper.TryAcquire(now) && skipper.TryAcquire(now), "TryAcquire should take the free burst");
+    Assert(!skipper.TryAcquire(now), "TryAcquire should refuse rather than wait once the burst is spent");
+    Assert(skipper.TryAcquire(now + System.Diagnostics.Stopwatch.Frequency), "TryAcquire should succeed once a send is free again");
     Console.WriteLine("PASS command rate limiter");
 }

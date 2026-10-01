@@ -236,6 +236,21 @@ internal sealed class CommandRateLimiter(int burst, TimeSpan interval)
         }
     }
 
+    // Takes a send only if one is free right now (for things that should be skipped rather than delayed).
+    public bool TryAcquire(long nowTimestamp)
+    {
+        lock (sync)
+        {
+            var earliest = nowTimestamp - (burst - 1) * intervalTicks;
+            if (nextFreeTimestamp < earliest)
+                nextFreeTimestamp = earliest;
+            if (nextFreeTimestamp > nowTimestamp)
+                return false;
+            nextFreeTimestamp += intervalTicks;
+            return true;
+        }
+    }
+
     public void Reset()
     {
         lock (sync)

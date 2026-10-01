@@ -372,6 +372,59 @@ namespace PuppetMaster
 
             // Always set to false on load
             currentConfiguration.DebugLogTypes = false;
+
+            if (!currentConfiguration.CopycatImportChecked)
+            {
+                currentConfiguration.CopycatImportChecked = true;
+                CopycatImportedEnabled = TryImportCopycatSettings(currentConfiguration.EmoteReplies);
+            }
+        }
+
+        // True when this load brought over enabled Right Back At You settings; the plugin tells the user once.
+        public static bool CopycatImportedEnabled { get; private set; }
+
+        // Right Back At You (Copycat) kept per-character settings in its own file. Emote replies are one global
+        // setting now: take the first character that had it on (or the first one at all).
+        private static bool TryImportCopycatSettings(EmoteReplySettings target)
+        {
+            try
+            {
+                var directory = PluginInterface.ConfigFile.DirectoryName;
+                if (directory == null)
+                    return false;
+                var path = Path.Combine(directory, "Copycat.json");
+                if (!File.Exists(path))
+                    return false;
+
+                var root = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(path));
+                if (root["PlayerConfigurations"] is not Newtonsoft.Json.Linq.JArray players || players.Count == 0)
+                    return false;
+                Newtonsoft.Json.Linq.JToken? chosen = null;
+                foreach (var player in players)
+                {
+                    if (player.Value<bool?>("Enabled") == true)
+                    {
+                        chosen = player;
+                        break;
+                    }
+                }
+                chosen ??= players[0];
+
+                target.Enabled = chosen.Value<bool?>("Enabled") ?? false;
+                target.TargetBack = chosen.Value<bool?>("TargetBack") ?? true;
+                target.MotionOnly = !string.IsNullOrEmpty(chosen.Value<string>("MotionOnly"));
+                // Copycat's only working filter was "Friends Only" (Allowed == 1); anything else meant everyone.
+                target.Senders = chosen.Value<int?>("Allowed") == 1
+                    ? new SenderFilter { Anyone = false, Friends = true, FreeCompany = false, Party = false }
+                    : SenderFilter.AnyoneFilter();
+                PluginLog.Information("Imported Right Back At You settings from {Path}.", path);
+                return target.Enabled;
+            }
+            catch (Exception ex)
+            {
+                PluginLog.Warning(ex, "Could not import Right Back At You settings.");
+                return false;
+            }
         }
 
         [PluginService]
