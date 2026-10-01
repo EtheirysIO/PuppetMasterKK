@@ -286,7 +286,17 @@ internal sealed partial class MainWindow
             Gap(8f);
             Centered("Let others tell you what to do.", Theme.Dim);
             Gap(8f);
-            Centered("By phys1ks, continuing DodingDaga's Puppet Master. Emote replies began as Right Back At You.", Theme.Faint);
+            W.TextWrapped("\"I've always liked the plugin but I wanted it to be a bit more robust and secure....so I just did it. " +
+                          "I have no idea who the original original original author is, but fuck it, add me to the list now I guess.\"",
+                          Theme.Ink);
+            Centered("- phys1ks", Theme.Dim);
+            Gap(8f);
+            Centered("Continues DodingDaga's Puppet Master (emote replies began as Right Back At You).", Theme.Faint);
+            const string originalRepo = "https://github.com/dodingdaga/DalamudPlugins";
+            var linkWidth = ImGui.CalcTextSize(originalRepo).X;
+            ImGui.SetCursorPosX(ImGui.GetCursorPosX() + System.MathF.Max(0f, (W.Avail() - linkWidth) * 0.5f));
+            if (W.Link(originalRepo, "Open the original repository in your browser"))
+                Dalamud.Utility.Util.OpenLink(originalRepo);
         }
     }
 
