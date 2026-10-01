@@ -17,7 +17,11 @@ internal sealed partial class MainWindow
     private static Dictionary<int, string>? officialNames;
     private static ChannelEntry[][] OfficialCategories => officialCategories ??= BuildOfficialCategories();
     private static Dictionary<int, string> OfficialNames => officialNames ??= BuildOfficialNames();
-    private static readonly string[] CategoryNames = PluginUiLogic.ChannelCategoryLabels; // ..., "Custom" last
+    // Only channels people chat in. "Other" appears only for a list that still has a channel from outside these
+    // (picked before the list was trimmed), so it can be unticked.
+    private static readonly string[] CategoryNames = ["Common", "CWLS", "Linkshells", "Custom", "Other"];
+    private const int CustomCategory = 3;
+    private const int OtherCategory = 4;
 
     private static readonly Dictionary<XivChatType, string> FriendlyNames = new()
     {
@@ -38,8 +42,7 @@ internal sealed partial class MainWindow
     private static readonly XivChatType[] CommonChannels =
     [
         XivChatType.Say, XivChatType.Yell, XivChatType.Shout, XivChatType.TellIncoming, XivChatType.Party,
-        XivChatType.CrossParty, XivChatType.Alliance, XivChatType.FreeCompany, XivChatType.NoviceNetwork,
-        XivChatType.PvPTeam, XivChatType.StandardEmote, XivChatType.CustomEmote,
+        XivChatType.CrossParty, XivChatType.Alliance, XivChatType.FreeCompany, XivChatType.PvPTeam,
     ];
 
     private static readonly XivChatType[] CrossWorldLinkshells =
@@ -68,23 +71,7 @@ internal sealed partial class MainWindow
             return list;
         }
 
-        var categories = new List<ChannelEntry[]> { From(CommonChannels), From(CrossWorldLinkshells), From(Linkshells) };
-        foreach (var label in PluginUiLogic.AdditionalChannelCategoryLabels)
-        {
-            var list = new List<ChannelEntry>();
-            foreach (var type in Enum.GetValues<XivChatType>())
-            {
-                var id = (int)type;
-                if (type == XivChatType.None || type == XivChatType.TellOutgoing || used.Contains(id))
-                    continue;
-                if (PluginUiLogic.GetAdvancedChannelCategory(type.ToString()) != label)
-                    continue;
-                used.Add(id);
-                list.Add(new ChannelEntry(id, OfficialName(type)));
-            }
-            categories.Add(list.ToArray());
-        }
-        return categories.ToArray();
+        return [From(CommonChannels), From(CrossWorldLinkshells), From(Linkshells)];
     }
 
     private static Dictionary<int, string> BuildOfficialNames()
@@ -111,7 +98,7 @@ internal sealed partial class MainWindow
         return $"Channel {id}";
     }
 
-    private static IReadOnlyList<ChannelEntry> CategoryChannels(int category)
+    private static IReadOnlyList<ChannelEntry> CategoryChannels(int category, List<int> target)
     {
         if (category < OfficialCategories.Length)
             return OfficialCategories[category];
@@ -121,7 +108,20 @@ internal sealed partial class MainWindow
             if (channel.ChatType is >= 0 and <= ushort.MaxValue && !IsOfficialChannel(channel.ChatType))
                 custom.Add(new ChannelEntry(channel.ChatType, ChannelName(channel.ChatType)));
         }
-        return custom;
+        if (category == CustomCategory)
+            return custom;
+
+        // Other: what this list has picked that none of the categories above offer.
+        var other = new List<ChannelEntry>();
+        foreach (var id in target)
+        {
+            var listed = custom.Exists(entry => entry.Id == id);
+            foreach (var official in OfficialCategories)
+                listed |= Array.Exists(official, entry => entry.Id == id);
+            if (!listed)
+                other.Add(new ChannelEntry(id, ChannelName(id)));
+        }
+        return other;
     }
 
     // ───────────────────────── Chips and the card ─────────────────────────
@@ -203,7 +203,9 @@ internal sealed partial class MainWindow
         pickerCategoryLabels.Clear();
         for (var i = 0; i < CategoryNames.Length; i++)
         {
-            var channels = CategoryChannels(i);
+            var channels = CategoryChannels(i, target);
+            if (i == OtherCategory && channels.Count == 0)
+                break; // no "Other" unless something is in it
             var picked = 0;
             foreach (var channel in channels)
             {
@@ -223,13 +225,14 @@ internal sealed partial class MainWindow
         var visible = new List<ChannelEntry>();
         if (string.IsNullOrWhiteSpace(pickerSearch))
         {
-            visible.AddRange(CategoryChannels(Math.Clamp(pickerCategory, 0, CategoryNames.Length - 1)));
+            pickerCategory = Math.Clamp(pickerCategory, 0, pickerCategoryLabels.Count - 1);
+            visible.AddRange(CategoryChannels(pickerCategory, target));
         }
         else
         {
-            for (var i = 0; i < CategoryNames.Length; i++)
+            for (var i = 0; i < pickerCategoryLabels.Count; i++)
             {
-                foreach (var channel in CategoryChannels(i))
+                foreach (var channel in CategoryChannels(i, target))
                 {
                     if (channel.Name.Contains(pickerSearch, StringComparison.OrdinalIgnoreCase) ||
                         channel.Id.ToString().Contains(pickerSearch, StringComparison.Ordinal))
@@ -242,7 +245,7 @@ internal sealed partial class MainWindow
         if (ImGui.BeginChild("##pickerChannels", new Vector2(width, Theme.S(300f)), false))
         {
             if (visible.Count == 0)
-                ImGui.TextColored(Theme.Faint, pickerCategory == CategoryNames.Length - 1 && string.IsNullOrWhiteSpace(pickerSearch)
+                ImGui.TextColored(Theme.Faint, pickerCategory == CustomCategory && string.IsNullOrWhiteSpace(pickerSearch)
                     ? "No custom channels yet. Add them in Settings > Custom channels, or from the message log."
                     : "No channels match.");
             using var table = W.Table("##pickerGrid", 3, ImGuiTableFlags.SizingStretchSame);

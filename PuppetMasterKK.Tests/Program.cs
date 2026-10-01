@@ -433,18 +433,6 @@ static void RunPluginUiLogicTests()
            PluginUiLogic.NotificationSettingLabels[(int)ReactionNotificationSetting.Enabled] == "Show" &&
            PluginUiLogic.NotificationSettingLabels[(int)ReactionNotificationSetting.Disabled] == "Hide",
         "notification radio groups should map every persisted enum value to the matching UI label");
-    Assert(PluginUiLogic.ChannelCategoryLabels.SequenceEqual(
-               ["Common", "CWLS", "Linkshells", "System", "Combat", "Activities", "Social", "GM", "Other", "Custom"]),
-        "channel selectors should expose one compact category at a time");
-    Assert(PluginUiLogic.AdditionalChannelCategoryLabels.SequenceEqual(
-               ["System", "Combat", "Activities", "Social", "GM", "Other"]) &&
-           PluginUiLogic.GetAdvancedChannelCategory("SystemMessage") == "System" &&
-           PluginUiLogic.GetAdvancedChannelCategory("GainBuff") == "Combat" &&
-           PluginUiLogic.GetAdvancedChannelCategory("LootRoll") == "Activities" &&
-           PluginUiLogic.GetAdvancedChannelCategory("NPCDialogue") == "Social" &&
-           PluginUiLogic.GetAdvancedChannelCategory("GmTell") == "GM" &&
-           PluginUiLogic.GetAdvancedChannelCategory("UnknownFutureType") == "Other",
-        "advanced channels should be grouped by user-facing purpose");
     Assert(PluginUiLogic.GetExecutionPolicyDescription(ReactionExecutionPolicy.QueueEveryTrigger)
                .Contains("up to 16 waiting") &&
            PluginUiLogic.GetExecutionPolicyDescription(ReactionExecutionPolicy.QueueLatestTrigger)

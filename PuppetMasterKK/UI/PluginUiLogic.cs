@@ -20,12 +20,6 @@ internal static class PluginUiLogic
     public static readonly string[] NotificationSettingLabels =
         ["Default", "Show", "Hide"];
 
-    public static readonly string[] ChannelCategoryLabels =
-        ["Common", "CWLS", "Linkshells", "System", "Combat", "Activities", "Social", "GM", "Other", "Custom"];
-
-    public static readonly string[] AdditionalChannelCategoryLabels =
-        ["System", "Combat", "Activities", "Social", "GM", "Other"];
-
     // Channels where anyone around you (or any stranger) can talk: a reaction that listens to one of these for Anyone
     // can be triggered by people you don't know. Numbers are XivChatType values.
     private static readonly HashSet<int> PublicChannelIds =
@@ -55,32 +49,6 @@ internal static class PluginUiLogic
                 return true;
         }
         return false;
-    }
-
-    public static string GetAdvancedChannelCategory(string channelName)
-    {
-        if (channelName.StartsWith("Gm", StringComparison.Ordinal))
-            return "GM";
-
-        if (channelName is "Damage" or "Miss" or "Action" or "Item" or "Healing" or
-            "GainBuff" or "GainDebuff" or "LoseBuff" or "LoseDebuff")
-            return "Combat";
-
-        if (channelName is "GlamourNotifications" or "LootNotice" or "Progress" or "LootRoll" or
-            "Crafting" or "Gathering" or "RetainerSale" or "Orchestrion" or "Sign" or "RandomNumber")
-            return "Activities";
-
-        if (channelName is "NPCDialogue" or "NPCDialogueAnnouncements" or "FreeCompanyAnnouncement" or
-            "FreeCompanyLoginLogout" or "PeriodicRecruitmentNotification" or "PvpTeamAnnouncement" or
-            "PvpTeamLoginLogout" or "MessageBook" or "CustomEmote" or "StandardEmote")
-            return "Social";
-
-        if (channelName is "Debug" or "Urgent" or "Notice" or "Alarm" or "Echo" or
-            "SystemMessage" or "SystemError" or "GatheringSystemMessage" or "ErrorMessage" or
-            "NoviceNetworkSystem")
-            return "System";
-
-        return "Other";
     }
 
     public static readonly (ReactionExecutionPolicy Policy, string Label)[] ExecutionPolicyOptions =

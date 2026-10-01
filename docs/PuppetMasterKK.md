@@ -148,7 +148,7 @@ Everything PuppetMasterKK sends goes through one limit: up to three commands at 
 
 ## Channels
 
-Pick at least one channel. Start small; you can always add more. A trigger with no channel can't activate. Public channels are tinted as a reminder that strangers talk there.
+Pick at least one channel. The picker offers the channels people chat in: **Common** (Say, Yell, Shout, Tell, Party, Cross-world Party, Alliance, Free Company, PvP Team), **CWLS**, **Linkshells**, and your **Custom** channels. Start small; you can always add more. A trigger with no channel can't activate. Public channels are tinted as a reminder that strangers talk there.
 
 <details>
 <summary>Discover and use a custom channel</summary>
