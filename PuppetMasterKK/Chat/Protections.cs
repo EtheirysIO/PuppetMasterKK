@@ -27,6 +27,9 @@ internal static class ProtectionGroups
         new("novice", "Novice Network", "/novice", ["/novice", "/beginner", "/n", "/b"]),
         new("pvpteam", "PvP Team", "/pvpteam", ["/pvpteam", "/pt"]),
         new("emote", "Emote text", "/emote: custom emote text", ["/emote", "/em"]),
+        new("dice", "Dice", "/dice: a roll in the chat channel you pick", ["/dice"]),
+        new("random", "Random", "/random: a roll everyone nearby sees", ["/random"]),
+        new("quickchat", "Quick chat", "/quickchat: a quick chat message", ["/quickchat", "/qchat"]),
     ];
 
     // Game commands with real consequences. "Any game command" never covers these.

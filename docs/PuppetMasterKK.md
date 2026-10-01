@@ -136,7 +136,7 @@ Each trigger's **Protections** card decides how much control it gets:
 2. Emotes run unless they're blocked.
 3. Other commands must be under **Allowed**, unless **Any game command** is selected.
 4. Protected commands only run when listed under **Allowed** (shown as **Also allowed** with **Any game command**). Three switches in the card decide what's protected, and each has ticks for its parts:
-   - **Protect chat commands**: Say, Yell, Shout, Tell, Party, Alliance, Free Company, Linkshells (including `/l` for your current one), CWLS (including `/cwl`), Novice Network, PvP Team and emote text (`/em`).
+   - **Protect chat commands**: Say, Yell, Shout, Tell, Party, Alliance, Free Company, Linkshells (including `/l` for your current one), CWLS (including `/cwl`), Novice Network, PvP Team, emote text (`/em`), dice (`/dice`), random rolls (`/random`) and quick chat (`/quickchat`).
    - **Protect risky game commands**: teleport and return, party commands (join, leave, kick, invite, leader), gear sets and glamour plates, trading, the friend list, blacklist and leaving the Novice Network, your search comment, hotbars, and resets (UI, HUD, chat log, tell history).
    - **Protect plugin commands**: every loaded plugin that has commands. The ones people could cause trouble with (Lifestream, Glamourer, Penumbra, Customize+, Dropbox, vnavmesh and others) are listed first, with the reason; the rest are under **Show other plugins**.
 

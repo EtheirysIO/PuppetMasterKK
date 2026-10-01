@@ -1212,6 +1212,13 @@ static void RunCommandPolicyTests()
     Assert(catalog.GroupOf(catalog.Canonicalize("/s")) == "say" && catalog.GroupOf(catalog.Canonicalize("/cwl3")) == "cwls" &&
            catalog.GroupOf(catalog.Canonicalize("/tp")) == "teleport" && catalog.Classify("/hotbar") == CommandKind.Sensitive,
         "chat and risky commands should map to their protection groups");
+    Assert(catalog.GroupOf(catalog.Canonicalize("/dice")) == "dice" && catalog.GroupOf(catalog.Canonicalize("/random")) == "random" &&
+           catalog.GroupOf(catalog.Canonicalize("/qchat")) == "quickchat" && catalog.Classify("/random") == CommandKind.Chat,
+        "dice, random and quick chat should be protected chat commands");
+    Assert(!CommandPolicy.IsAllowed(catalog.Canonicalize("/random"), catalog.Classify("/random"), catalog.CanonicalSet([]),
+               catalog.CanonicalSet([]), true, out _) &&
+           Open(new ProtectionSettings { OpenChat = ["random"] }, "/random") && !Open(new ProtectionSettings { OpenChat = ["random"] }, "/dice"),
+        "\"Any game command\" shouldn't cover /random; unticking it alone should open only it");
     Assert(Open(chatOff, "/s") && !Open(chatOff, "/sh") && Open(chatOff, "/tp") && !Open(chatOff, "/leave") &&
            Open(chatOff, "/li", "Lifestream") && !Open(chatOff, "/glamour", "Glamourer"),
         "an unticked channel, risky group or plugin should run unlisted; ticked ones still need Allowed");
