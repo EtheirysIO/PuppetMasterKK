@@ -44,6 +44,13 @@ internal sealed partial class MainWindow
                 settings.FollowWords = followWords;
                 Changed();
             }
+            Label("Come word");
+            var comeWords = settings.ComeWords;
+            if (W.TextInput("##comeWords", ref comeWords, "come", 0f, 200))
+            {
+                settings.ComeWords = comeWords;
+                Changed();
+            }
             Label("Stop word");
             var stopWords = settings.StopWords;
             if (W.TextInput("##stopWords", ref stopWords, "stop", 0f, 200, error: string.IsNullOrWhiteSpace(stopWords)))
@@ -55,9 +62,25 @@ internal sealed partial class MainWindow
             var call = FirstAlternative(settings.CallNames, "Ami");
             var follow = FirstAlternative(settings.FollowWords, "follow");
             var stop = FirstAlternative(settings.StopWords, "stop");
+            var come = FirstAlternative(settings.ComeWords, "come");
             Gap(2f);
-            Hint($"\"{call} {follow}\" makes you follow whoever said it. \"{call} {follow} Nova Ral'veth@Exodus\" (or just \"Nova\", if " +
-                 $"only one Nova is nearby) makes you follow that player. \"{call} {stop}\" stops everything.");
+            Hint($"\"{call} {come}\" comes to whoever said it and follows them. \"{call} {follow} me\" does the same, and " +
+                 $"\"{call} {follow} Nova Ral'veth@Exodus\" (or just \"Nova\", if only one Nova is nearby) follows that player. " +
+                 $"\"{call} {follow}\" on its own names nobody, so it's ignored. \"{call} {stop}\" stops everything.");
+
+            Gap();
+            var walk = settings.WalkWithVnavmesh;
+            if (W.Toggle("Walk to them with vnavmesh##walkVnavmesh", ref walk))
+            {
+                settings.WalkWithVnavmesh = walk;
+                Changed();
+            }
+            ImGui.SameLine();
+            var vnavmesh = FollowNavigator.IsLoaded();
+            W.Chip(vnavmesh ? "vnavmesh detected" : "vnavmesh not detected", vnavmesh ? Theme.Accent : Theme.Faint);
+            Hint("When the player is in your zone but more than 20 yalms away, walk to them first, then target and follow them. " +
+                 "Party members can be anywhere in the zone; anyone else has to be close enough to see. Gives up in combat, " +
+                 "after 90 seconds, or if they leave the zone. The stop word stops the walk too.");
         }
 
         var count = settings.Channels.Count;

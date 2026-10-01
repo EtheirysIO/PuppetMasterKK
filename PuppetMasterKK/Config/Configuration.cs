@@ -127,6 +127,10 @@ namespace PuppetMasterKK
         public string CallNames { get; set; } = string.Empty;
         public string FollowWords { get; set; } = "follow";
         public string StopWords { get; set; } = "stop";
+        // "Ami come": come to the sender and follow them.
+        public string ComeWords { get; set; } = "come";
+        // When the player is in the zone but too far to follow, walk to them with vnavmesh first (when it's loaded).
+        public bool WalkWithVnavmesh { get; set; } = true;
         // Tell, Party, Free Company.
         [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
         public List<int> Channels { get; set; } = [13, 14, 24];

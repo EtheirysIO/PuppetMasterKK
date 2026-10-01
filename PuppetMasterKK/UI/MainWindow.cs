@@ -112,7 +112,9 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
         if (W.NavRow("emotes", FontAwesomeIcon.Smile, "Emote replies", page == Page.EmoteReplies,
                      Config.EmoteReplies.Enabled ? "On" : "Off"))
             page = Page.EmoteReplies;
-        var followSubtitle = !Config.Follow.Enabled ? "Off" : FollowMode.Following is { } following ? $"Following {following}" : "On";
+        var followSubtitle = !Config.Follow.Enabled ? "Off" : FollowMode.Following is { } following
+            ? (FollowNavigator.IsWalking ? $"Walking to {following}" : $"Following {following}")
+            : "On";
         if (W.NavRow("follow", FontAwesomeIcon.Walking, "Follow mode", page == Page.Follow, followSubtitle))
             page = Page.Follow;
         var running = activity.Active.Length;

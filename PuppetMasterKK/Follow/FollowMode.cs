@@ -5,12 +5,13 @@ using ECommons.Automation;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Numerics;
 
 namespace PuppetMasterKK;
 
-// Follow mode (framework thread only): "Ami follow [player]" targets the player (or the sender) and sends /follow;
-// "Ami stop" stops every trigger and takes one tiny automove step, which ends following, emote loops, sitting and
-// lying down.
+// Follow mode (framework thread only): "Ami follow <player|me>" and "Ami come" (the sender) target the player and
+// send /follow, walking there with vnavmesh first when they're in the zone but too far away; "Ami stop" stops every
+// trigger and takes one tiny automove step, which ends following, emote loops, sitting and lying down.
 internal static class FollowMode
 {
     // A sender can be answered by tell (or have a stop honored) at most this often.
@@ -18,12 +19,17 @@ internal static class FollowMode
     private static readonly long StopCooldown = 2 * Stopwatch.Frequency;
     private static readonly Dictionary<string, long> NextReply = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, long> NextStop = new(StringComparer.OrdinalIgnoreCase);
+    // Farther than this, walk there first (when vnavmesh can).
+    private const float WalkFrom = 20f;
 
     // Who we were last told to follow (shown in the sidebar until a stop).
     public static string? Following { get; private set; }
 
+    public static void ClearFollowing() => Following = null;
+
     public static void Reset()
     {
+        FollowNavigator.Cancel();
         NextReply.Clear();
         NextStop.Clear();
         Following = null;
@@ -38,7 +44,7 @@ internal static class FollowMode
             return false;
 
         var text = ReactionCommandMatcher.SanitizeIncoming(message.ToString());
-        var request = FollowParser.Parse(text, settings.CallNames, settings.FollowWords, settings.StopWords);
+        var request = FollowParser.Parse(text, settings.CallNames, settings.FollowWords, settings.StopWords, settings.ComeWords);
         if (request.Kind == FollowRequestKind.None)
             return false;
 
@@ -71,43 +77,94 @@ internal static class FollowMode
         if (local == null)
             return;
 
-        // Who's around (other players only).
-        var nearby = new List<PlayerName>();
-        var characters = new List<IPlayerCharacter>();
-        foreach (var gameObject in Service.ObjectTable)
-        {
-            if (gameObject is not IPlayerCharacter player || player.GameObjectId == local.GameObjectId)
-                continue;
-            nearby.Add(new PlayerName(player.Name.TextValue, player.HomeWorld.ValueNullable?.Name.ExtractText() ?? string.Empty));
-            characters.Add(player);
-        }
-
-        var index = FollowParser.FindNearby(requested, nearby);
+        var candidates = Candidates(local);
+        var names = new List<PlayerName>(candidates.Count);
+        foreach (var candidate in candidates)
+            names.Add(candidate.Name);
+        var index = FollowParser.FindNearby(requested, names);
         if (index < 0)
         {
             ReplyNotNearby(who, shownName, settings);
             return;
         }
 
-        var target = nearby[index];
-        if (!FollowParser.MayFollow(target, settings.OnlyFollow, settings.NeverFollow))
+        var target = candidates[index];
+        if (!FollowParser.MayFollow(target.Name, settings.OnlyFollow, settings.NeverFollow))
         {
-            Service.PluginLog.Information("Not following {Target}: blocked by the follow lists.", target.Name);
+            Service.PluginLog.Information("Not following {Target}: blocked by the follow lists.", target.Name.Name);
             return;
         }
 
+        // A new request replaces any walk in progress.
+        FollowNavigator.Cancel();
+        if (settings.WalkWithVnavmesh && Vector3.Distance(local.Position, target.Position) > WalkFrom &&
+            FollowNavigator.IsAvailable() && FollowNavigator.Start(target.Name, target.Position))
+        {
+            Following = target.Name.Name;
+            return;
+        }
+        if (target.Character == null)
+        {
+            // In the zone (a party member) but too far to see, and no way to walk there.
+            ReplyNotNearby(who, shownName, settings);
+            return;
+        }
+        TargetAndFollow(target.Character, target.Name.Name);
+    }
+
+    // Players we could follow: everyone around, plus party members elsewhere in the zone (by their map position).
+    private static List<(PlayerName Name, IPlayerCharacter? Character, Vector3 Position)> Candidates(IPlayerCharacter local)
+    {
+        var found = new List<(PlayerName Name, IPlayerCharacter? Character, Vector3 Position)>();
+        foreach (var gameObject in Service.ObjectTable)
+        {
+            if (gameObject is not IPlayerCharacter player || player.GameObjectId == local.GameObjectId)
+                continue;
+            found.Add((new PlayerName(player.Name.TextValue, player.HomeWorld.ValueNullable?.Name.ExtractText() ?? string.Empty),
+                       player, player.Position));
+        }
+        var territory = Service.ClientState.TerritoryType;
+        var localName = local.Name.TextValue;
+        foreach (var member in Service.PartyList)
+        {
+            if (member == null || member.Territory.RowId != territory)
+                continue;
+            var name = new PlayerName(member.Name.TextValue, member.World.ValueNullable?.Name.ExtractText() ?? string.Empty);
+            if (name.Name.Length == 0 || name.Name == localName)
+                continue;
+            if (found.Exists(entry => entry.Name.Name.Equals(name.Name, StringComparison.OrdinalIgnoreCase) &&
+                                      entry.Name.World.Equals(name.World, StringComparison.OrdinalIgnoreCase)))
+                continue;
+            found.Add((name, null, member.Position));
+        }
+        return found;
+    }
+
+    // Where that player is now (and their character, once they're close enough to see), or null when they've left.
+    public static (Vector3 Position, IPlayerCharacter? Character)? Locate(PlayerName who, IPlayerCharacter local)
+    {
+        foreach (var candidate in Candidates(local))
+        {
+            if (candidate.Name.Name.Equals(who.Name, StringComparison.OrdinalIgnoreCase) &&
+                (who.World.Length == 0 || candidate.Name.World.Equals(who.World, StringComparison.OrdinalIgnoreCase)))
+                return (candidate.Position, candidate.Character);
+        }
+        return null;
+    }
+
+    public static void TargetAndFollow(IPlayerCharacter character, string name)
+    {
         if (!CommandRateLimiter.Shared.TryAcquire(Stopwatch.GetTimestamp()))
         {
-            Service.PluginLog.Debug("Follow request for {Target} dropped: sending too fast.", target.Name);
+            Service.PluginLog.Debug("Follow request for {Target} dropped: sending too fast.", name);
             return;
         }
 
         // Target first. The game takes the new target on a later frame, so /follow goes out a moment after, as
         // "/follow <t>" (the game's own "my current target"), and only if the target is still that player.
-        var character = characters[index];
         var targetId = character.GameObjectId;
         Service.TargetManager.Target = character;
-        _ = Service.Framework.RunOnTick(() => SendFollow(targetId, target.Name), TimeSpan.FromMilliseconds(150));
+        _ = Service.Framework.RunOnTick(() => SendFollow(targetId, name), TimeSpan.FromMilliseconds(150));
     }
 
     private static void SendFollow(ulong targetId, string name)
@@ -164,6 +221,7 @@ internal static class FollowMode
         // Every trigger: running ones stop, waiting ones are dropped.
         foreach (var reaction in Service.configuration!.Reactions)
             ChatHandler.CancelReaction(reaction);
+        FollowNavigator.Cancel();
         Following = null;
 
         // Stop is never rate limited: it's how you get your character back.

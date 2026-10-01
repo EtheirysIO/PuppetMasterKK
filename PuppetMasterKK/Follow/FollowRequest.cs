@@ -8,10 +8,13 @@ internal enum FollowRequestKind
 {
     None,
     Follow,
+    // Come to the sender, wherever they are in the zone.
+    Come,
     Stop,
 }
 
-// "Ami follow" (Target empty: the sender), "Ami follow Nova Ral'veth@Exodus", "Ami stop".
+// "Ami follow me" (Target empty: the sender), "Ami follow Nova Ral'veth@Exodus", "Ami come", "Ami stop".
+// A bare "Ami follow" names nobody, so it isn't a request.
 internal readonly record struct FollowRequest(FollowRequestKind Kind, string Target)
 {
     public static FollowRequest None { get; } = new(FollowRequestKind.None, string.Empty);
@@ -30,14 +33,16 @@ internal static class FollowParser
     // Compiled patterns for the current words, rebuilt only when the words change.
     private static string cachedKey = "\u0000";
     private static Regex? followPattern;
+    private static Regex? comePattern;
     private static Regex? stopPattern;
 
-    public static FollowRequest Parse(string message, string callNames, string followWords, string stopWords)
+    public static FollowRequest Parse(string message, string callNames, string followWords, string stopWords, string comeWords = "")
     {
-        var key = callNames + "\u0001" + followWords + "\u0001" + stopWords;
+        var key = callNames + "\u0001" + followWords + "\u0001" + stopWords + "\u0001" + comeWords;
         if (key != cachedKey)
         {
             followPattern = BuildPattern(callNames, followWords, withTarget: true);
+            comePattern = BuildPattern(callNames, comeWords, withTarget: false);
             stopPattern = BuildPattern(callNames, stopWords, withTarget: false);
             cachedKey = key;
         }
@@ -46,9 +51,15 @@ internal static class FollowParser
         {
             if (stopPattern?.IsMatch(message) == true)
                 return new FollowRequest(FollowRequestKind.Stop, string.Empty);
+            if (comePattern?.IsMatch(message) == true)
+                return new FollowRequest(FollowRequestKind.Come, string.Empty);
             var match = followPattern?.Match(message);
             if (match is { Success: true })
-                return new FollowRequest(FollowRequestKind.Follow, CleanTarget(match.Groups["target"].Value));
+            {
+                var named = match.Groups["target"].Value.Trim().TrimEnd('.', '!', '?', '~', ',').Trim();
+                if (named.Length > 0)
+                    return new FollowRequest(FollowRequestKind.Follow, CleanTarget(named));
+            }
         }
         catch (RegexMatchTimeoutException)
         {

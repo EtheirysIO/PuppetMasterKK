@@ -243,9 +243,10 @@ This also clears waiting requests. **Cancel** in the sidebar stops every trigger
 
 **Follow mode** lets someone you trust make you follow them, or another player, and stop you again.
 
-- **Call name** is what people call you (`Ami`; several with `|`). **Follow word** (`follow`) and **Stop word** (`stop`) can be changed, and take several with `|` too, such as `follow|come`.
-- `Ami follow` follows whoever said it (`Ami follow me` too). `Ami follow Nova Ral'veth@Exodus` follows that player; `Ami follow Nova` works when only one Nova is nearby. PuppetMasterKK targets the player, then sends `/follow`.
-- The player has to be nearby. If they aren't, PuppetMasterKK can **Reply by tell** with your own message, where `<target>` becomes the name they asked for: `uwu I'm sorry master I don't see <target> near me :c`. One reply per person every 10 seconds.
+- **Call name** is what people call you (`Ami`; several with `|`). **Follow word** (`follow`), **Come word** (`come`) and **Stop word** (`stop`) can be changed, and take several with `|` too, such as `follow|trail`.
+- `Ami come` comes to whoever said it and follows them; so does `Ami follow me`. `Ami follow Nova Ral'veth@Exodus` follows that player; `Ami follow Nova` works when only one Nova is nearby. `Ami follow` on its own names nobody, so it's ignored. PuppetMasterKK targets the player, then sends `/follow`.
+- **Walk to them with vnavmesh** (on, used when vnavmesh is loaded): when the player is in your zone but more than 20 yalms away, you walk to them first, then target and follow them. Party members can be anywhere in the zone; anyone else has to be close enough to see. The walk gives up in combat, after 90 seconds, or if they leave the zone, and the stop word ends it.
+- Otherwise the player has to be nearby. If they aren't, PuppetMasterKK can **Reply by tell** with your own message, where `<target>` becomes the name they asked for: `uwu I'm sorry master I don't see <target> near me :c`. One reply per person every 10 seconds.
 - **Channels** picks where it listens (Tell, Party and Free Company to start). **Who can trigger it** works as it does for triggers, and **Never take requests from** blocks people outright.
 - **Who you'll follow**: when **Only follow** has names, only they are followed; **Never follow** always wins.
 - `Ami stop` stops every trigger (running or waiting). With **Also stand still** on, it takes one tiny `/automove` step, which ends following, emote loops, sitting and lying down, leaving you standing. **Then run** adds your own commands after that.

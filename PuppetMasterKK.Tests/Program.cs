@@ -1287,26 +1287,32 @@ static void RunRateLimiterTests()
 
 static void RunFollowTests()
 {
-    FollowRequest Parse(string message, string call = "Ami", string follow = "follow", string stop = "stop")
-        => FollowParser.Parse(ReactionCommandMatcher.SanitizeIncoming(message), call, follow, stop);
+    FollowRequest Parse(string message, string call = "Ami", string follow = "follow", string stop = "stop", string come = "come")
+        => FollowParser.Parse(ReactionCommandMatcher.SanitizeIncoming(message), call, follow, stop, come);
 
-    Assert(Parse("Ami follow") == new FollowRequest(FollowRequestKind.Follow, ""), "\"Ami follow\" should follow the sender");
-    Assert(Parse("ami FOLLOW!") == new FollowRequest(FollowRequestKind.Follow, ""), "case and trailing punctuation shouldn't matter");
+    Assert(Parse("Ami follow").Kind == FollowRequestKind.None && Parse("Ami follow!").Kind == FollowRequestKind.None,
+        "a bare \"Ami follow\" names nobody, so it isn't a request");
+    Assert(Parse("ami FOLLOW me!") == new FollowRequest(FollowRequestKind.Follow, ""), "case and trailing punctuation shouldn't matter");
     Assert(Parse("Ami, follow me") == new FollowRequest(FollowRequestKind.Follow, ""), "\"me\" should mean the sender");
+    Assert(Parse("Ami come") == new FollowRequest(FollowRequestKind.Come, "") && Parse("Ami, come here!").Kind == FollowRequestKind.Come &&
+           Parse("Ami come", come: "").Kind == FollowRequestKind.None,
+        "the come word should come to the sender, and no come word means no come requests");
     Assert(Parse("Ami follow Nova Ral'veth@Exodus") == new FollowRequest(FollowRequestKind.Follow, "Nova Ral'veth@Exodus"),
         "a named player should be the target");
     Assert(Parse("hey Ami follow Nova.") == new FollowRequest(FollowRequestKind.Follow, "Nova"), "the request can follow other words");
     Assert(Parse("Ami stop") == new FollowRequest(FollowRequestKind.Stop, "") && Parse("ok Ami, STOP now").Kind == FollowRequestKind.Stop,
         "the stop word should stop");
-    Assert(Parse("Amity follow").Kind == FollowRequestKind.None && Parse("Ami followers").Kind == FollowRequestKind.None,
+    Assert(Parse("Amity follow me").Kind == FollowRequestKind.None && Parse("Ami followers me").Kind == FollowRequestKind.None &&
+           Parse("Ami comes").Kind == FollowRequestKind.None,
         "call names and words must be whole words");
     Assert(Parse("follow Ami").Kind == FollowRequestKind.None, "the call name comes first");
-    Assert(Parse("Ami come", follow: "follow|come").Kind == FollowRequestKind.Follow &&
-           Parse("Kitty follow", call: "Ami|Kitty").Kind == FollowRequestKind.Follow,
-        "several call names and follow words should work");
-    Assert(Parse("Ami follow", call: "").Kind == FollowRequestKind.None && Parse("Ami follow", call: " | ").Kind == FollowRequestKind.None,
+    Assert(Parse("Ami trail Nova", follow: "follow|trail").Kind == FollowRequestKind.Follow &&
+           Parse("Kitty follow me", call: "Ami|Kitty").Kind == FollowRequestKind.Follow &&
+           Parse("Ami here", come: "come|here").Kind == FollowRequestKind.Come,
+        "several call names and words should work");
+    Assert(Parse("Ami follow me", call: "").Kind == FollowRequestKind.None && Parse("Ami come", call: " | ").Kind == FollowRequestKind.None,
         "no call name means no requests");
-    Assert(Parse("Ami.* follow", call: "Ami.*").Kind == FollowRequestKind.Follow && Parse("Amixx follow", call: "Ami.*").Kind == FollowRequestKind.None,
+    Assert(Parse("Ami.* follow me", call: "Ami.*").Kind == FollowRequestKind.Follow && Parse("Amixx follow me", call: "Ami.*").Kind == FollowRequestKind.None,
         "call names are plain text, not patterns");
     Assert(!Parse("Ami follow Nova\r/sh hi").Target.Contains('\r'), "a line break can't sneak into the target");
 
