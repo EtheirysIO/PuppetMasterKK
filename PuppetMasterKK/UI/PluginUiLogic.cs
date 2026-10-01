@@ -39,6 +39,7 @@ internal static class PluginUiLogic
         29, // StandardEmote
         30, // Yell
         32, // CrossParty
+        37, 101, 102, 103, 104, 105, 106, 107, // Cross-world linkshells (often large, open communities)
     ];
 
     public static bool IsPublicChannel(int chatTypeId) => PublicChannelIds.Contains(chatTypeId);
@@ -318,15 +319,5 @@ internal static class PluginUiLogic
         if (customChannels.Any(candidate => !ReferenceEquals(candidate, channel) && candidate.ChatType == channelId))
             return "Another custom channel already uses this ID.";
         return null;
-    }
-
-    public static bool ShouldShowCustomChannel(
-        ChannelSetting channel,
-        Func<int, bool> isOfficial,
-        Func<int, string?> getOfficialName)
-    {
-        if (!isOfficial(channel.ChatType))
-            return true;
-        return !channel.Name.Equals(getOfficialName(channel.ChatType), StringComparison.Ordinal);
     }
 }

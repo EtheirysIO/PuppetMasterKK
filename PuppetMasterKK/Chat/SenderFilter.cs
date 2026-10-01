@@ -71,6 +71,8 @@ public class SenderFilter
             var at = entry.IndexOf('@');
             var name = (at < 0 ? entry : entry[..at]).Trim();
             var world = at < 0 ? string.Empty : entry[(at + 1)..].Trim();
+            if (at >= 0 && world.Length == 0)
+                continue; // "Name@" names no world: not a match for every world
             if (!name.Equals(sender.Name, StringComparison.OrdinalIgnoreCase))
                 continue;
             if (world.Length == 0 || world.Equals(sender.World, StringComparison.OrdinalIgnoreCase))

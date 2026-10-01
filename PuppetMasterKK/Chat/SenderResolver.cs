@@ -15,15 +15,24 @@ internal static unsafe class SenderResolver
 {
     public static SenderInfo FromChat(XivChatType type, SeString sender, SeString message)
     {
+        if (type == XivChatType.TellOutgoing)
+            return SenderInfo.Unknown with { IsSelf = true };
+
         var player = FirstPlayer(sender);
         var isEmoteLine = type == XivChatType.StandardEmote;
         if (player == null && isEmoteLine)
         {
-            // Standard emote lines have no sender: the player is a link inside the message ("Name waves.").
-            player = FirstPlayer(message);
-            // Your own emote lines ("You wave.") carry no player at all.
-            if (player == null)
+            // Standard emote lines have no sender: the player is a link at the start of the message ("Bob waves.").
+            // Your own lines start with text instead ("You wave to Bob." links Bob, the target, not you).
+            if (!StartsWithPlayer(message, out player))
                 return SenderInfo.Unknown with { IsSelf = true };
+        }
+        else if (player == null && PluginUiLogic.IsPlayerChatChannel((int)type) &&
+                 !string.IsNullOrWhiteSpace(StripGlyphs(sender.TextValue)))
+        {
+            // On player channels everyone else's name is a player link. A plain name is yours, even when the chat
+            // log shortens it ("J. Doe").
+            return new SenderInfo(Service.PlayerState.CharacterName, HomeWorldName(), true, false, false, false);
         }
 
         string name;
@@ -61,6 +70,24 @@ internal static unsafe class SenderResolver
         var isFriend = IsFriend(name, worldId) || (nearby != null && (nearby.StatusFlags & StatusFlags.Friend) != 0);
         return new SenderInfo(name, world, isSelf, isFriend, isFreeCompany, isParty);
     }
+
+    private static bool StartsWithPlayer(SeString text, out PlayerPayload? player)
+    {
+        player = null;
+        foreach (var payload in text.Payloads)
+        {
+            if (payload is PlayerPayload found)
+            {
+                player = found;
+                return true;
+            }
+            if (payload is TextPayload { Text: { } textValue } && !string.IsNullOrWhiteSpace(StripGlyphs(textValue)))
+                return false;
+        }
+        return false;
+    }
+
+    private static string HomeWorldName() => Service.PlayerState.HomeWorld.ValueNullable?.Name.ExtractText() ?? string.Empty;
 
     private static PlayerPayload? FirstPlayer(SeString text)
     {

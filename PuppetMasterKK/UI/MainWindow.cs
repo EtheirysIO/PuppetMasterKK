@@ -96,7 +96,7 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
 
     protected override string PageKey => page switch
     {
-        Page.Reactions => $"reactions/{selected}",
+        Page.Reactions => SelectedReaction is { } shown ? $"reactions/{System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(shown)}" : "reactions",
         Page.Settings => $"settings/{settingsTab}",
         _ => page.ToString(),
     };

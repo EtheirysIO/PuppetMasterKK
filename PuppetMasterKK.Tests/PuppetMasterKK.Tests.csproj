@@ -21,7 +21,7 @@
     </Reference>
   </ItemGroup>
 
-  <!-- The plugin's pure logic, compiled in from src (everything that doesn't need the game). -->
+  <!-- The plugin's pure logic, compiled in from PuppetMasterKK (everything that doesn't need the game). -->
   <ItemGroup>
     <Compile Include="..\PuppetMasterKK\Config\Configuration.cs" Link="Linked\Configuration.cs" />
     <Compile Include="..\PuppetMasterKK\Config\ConfigurationMigrator.cs" Link="Linked\ConfigurationMigrator.cs" />

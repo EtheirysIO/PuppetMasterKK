@@ -25,6 +25,8 @@ namespace PuppetMasterKK
         private bool chatHandlerStarted;
         private bool ecommonsInitialized;
         private bool kitInitialized;
+        private bool pluginsWatched;
+        private static readonly HashSet<string> WarnedRivals = new(StringComparer.OrdinalIgnoreCase);
 
         public Plugin(IDalamudPluginInterface pluginInterface)
         {
@@ -53,16 +55,6 @@ namespace PuppetMasterKK
                 ChatHandler.Initialize();
                 chatHandlerStarted = true;
                 emoteReplies = new EmoteReplies();
-                if (Service.LegacyConfigImported)
-                {
-                    Service.NotificationManager.AddNotification(new Dalamud.Interface.ImGuiNotification.Notification
-                    {
-                        Title = "PuppetMasterKK",
-                        Content = "Your Puppet Master reactions and settings were brought over. The old settings file wasn't changed.",
-                        Type = Dalamud.Interface.ImGuiNotification.NotificationType.Info,
-                        InitialDuration = TimeSpan.FromSeconds(15),
-                    });
-                }
                 if (Service.CopycatImportedEnabled)
                 {
                     Service.NotificationManager.AddNotification(new Dalamud.Interface.ImGuiNotification.Notification
@@ -90,6 +82,9 @@ namespace PuppetMasterKK
                 });
                 commandRegistered = true;
                 WarnIfOldPluginLoaded();
+                Service.PluginInterface.ActivePluginsChanged += OnActivePluginsChanged;
+                pluginsWatched = true;
+                ShowLoadNotices();
                 Service.ChatGui.ChatMessage += ChatHandler.OnChatMessage;
                 chatSubscribed = true;
                 Service.PluginInterface.UiBuilder.Draw += DrawUI;
@@ -107,6 +102,11 @@ namespace PuppetMasterKK
 
         public void Dispose()
         {
+            if (pluginsWatched)
+            {
+                Safe(() => Service.PluginInterface.ActivePluginsChanged -= OnActivePluginsChanged);
+                pluginsWatched = false;
+            }
             if (uiSubscribed)
             {
                 Safe(() =>
@@ -168,7 +168,8 @@ namespace PuppetMasterKK
                 {
                     if (!plugin.IsLoaded || plugin.InternalName.Equals("PuppetMasterKK", StringComparison.OrdinalIgnoreCase))
                         continue;
-                    if (IsRival(plugin.InternalName) || IsRival(plugin.Name))
+                    // Each rival is announced once per session, not on every plugin list change.
+                    if ((IsRival(plugin.InternalName) || IsRival(plugin.Name)) && WarnedRivals.Add(plugin.InternalName))
                         rivals.Add(plugin.Name);
                 }
                 if (rivals.Count == 0)
@@ -189,6 +190,46 @@ namespace PuppetMasterKK
             {
                 Service.PluginLog.Warning(ex, "Could not check for other puppet master plugins.");
             }
+        }
+
+        // A rival loaded after us (or still loading when we started) is caught here.
+        private static void OnActivePluginsChanged(IActivePluginsChangedEventArgs args)
+        {
+            Service.Framework.RunOnFrameworkThread(WarnIfOldPluginLoaded);
+        }
+
+        private static void ShowLoadNotices()
+        {
+            var config = Service.configuration!;
+            if (Service.LegacyConfigImported)
+            {
+                Notify("Your Puppet Master reactions and settings were brought over. The old settings file wasn't changed.",
+                       Dalamud.Interface.ImGuiNotification.NotificationType.Info);
+            }
+            else if (Service.LegacyUnreadable.Count > 0)
+            {
+                Notify($"Old Puppet Master settings were found but couldn't be read ({string.Join(", ", Service.LegacyUnreadable)}), " +
+                       "so PuppetMasterKK started fresh. They weren't changed.",
+                       Dalamud.Interface.ImGuiNotification.NotificationType.Warning);
+            }
+            if (config.ReviewAfterMigration.Count > 0)
+            {
+                Notify($"Please review: {string.Join(", ", config.ReviewAfterMigration)}.\nThese can run any game command and react " +
+                       "to anyone. Chat commands, other plugins' commands and things like teleporting now have to be allowed one by one.",
+                       Dalamud.Interface.ImGuiNotification.NotificationType.Warning);
+                config.ReviewAfterMigration.Clear();
+            }
+        }
+
+        private static void Notify(string content, Dalamud.Interface.ImGuiNotification.NotificationType type)
+        {
+            Service.NotificationManager.AddNotification(new Dalamud.Interface.ImGuiNotification.Notification
+            {
+                Title = "PuppetMasterKK",
+                Content = content,
+                Type = type,
+                InitialDuration = TimeSpan.FromSeconds(20),
+            });
         }
 
         private static bool IsRival(string name)
@@ -218,16 +259,22 @@ namespace PuppetMasterKK
                 mainWindow?.Toggle(Page.Reactions);
             else
             {
-                var ptc = Service.FormatCommand($"/{args}");
-#if DEBUG
-                Service.ChatGui.Print($"[PuppetMasterKK][Debug] PARSED TEXT COMMAND: {ptc}");
-#endif
+                // The verb, then the rest as typed (a reaction name is matched exactly as written, brackets included).
+                var trimmed = args.Trim();
+                var space = trimmed.IndexOf(' ');
+                var ptc = new ParsedTextCommand
+                {
+                    Main = "/" + (space < 0 ? trimmed : trimmed[..space]).ToLowerInvariant(),
+                    Args = space < 0 ? string.Empty : trimmed[(space + 1)..].Trim(),
+                };
                 void enableReactions(bool enable)
                 {
                     if (string.IsNullOrEmpty(ptc.Args))
                         Service.SetEnabledAll(enable);
                     else
                         Service.SetEnabled(ptc.Args, enable);
+                    if (!enable)
+                        CommandRateLimiter.Shared.Reset();
                 }
                 if (ptc.Main.Equals("/on"))
                 {
@@ -281,7 +328,7 @@ namespace PuppetMasterKK
                 default:
                     Service.ChatGui.Print(
                         $"[PuppetMasterKK] Logging is {(Service.configuration!.DebugLogTypes ? "enabled" : "disabled")}. " +
-                        "Use /puppetmaster logging on|off|clear|save.");
+                        "Use /pmkk logging on|off|clear|save.");
                     break;
             }
         }

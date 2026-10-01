@@ -1,0 +1,81 @@
+{
+  "$type": "PuppetMaster.Configuration, PuppetMaster",
+  "Version": 3,
+  "TriggerPhrase": "please do",
+  "AllowSit": false,
+  "MotionOnly": true,
+  "AllowAllCommands": false,
+  "UseRegex": false,
+  "CustomPhrase": "",
+  "ReplaceMatch": "",
+  "TestInput": "",
+  "EnabledChannels": [],
+  "CustomChannels": [
+    {
+      "$type": "PuppetMaster.ChannelSetting, PuppetMaster",
+      "ChatType": 57,
+      "Name": "SystemMessage",
+      "Enabled": false
+    }
+  ],
+  "Reactions": [
+    {
+      "$type": "PuppetMaster.Reaction, PuppetMaster",
+      "Enabled": true,
+      "Name": "Ami",
+      "TriggerPhrase": "Ami",
+      "AllowSit": true,
+      "MotionOnly": true,
+      "CooldownSeconds": 0,
+      "ExecutionPolicy": 1,
+      "ProgressNotifications": 0,
+      "SuppressedNotifications": 0,
+      "AllowAllCommands": true,
+      "UseRegex": false,
+      "CustomPhrase": "",
+      "ReplaceMatch": "",
+      "TestInput": "Ami dance",
+      "EnabledChannels": [ 13 ],
+      "CommandWhitelist": [],
+      "CommandBlacklist": [ "/sit", "/groundsit", "/lounge" ],
+      "Rx": {
+        "Pattern": "(?i)\\b(?:Ami)\\s+(?:\\((.*?)\\)|(\\w+))",
+        "Options": 0,
+        "MatchTimeout": "00:00:00.2500000"
+      },
+      "CustomRx": null
+    },
+    {
+      "$type": "PuppetMaster.Reaction, PuppetMaster",
+      "Enabled": false,
+      "Name": "Wave",
+      "TriggerPhrase": "please wave",
+      "AllowSit": true,
+      "MotionOnly": true,
+      "CooldownSeconds": 5,
+      "ExecutionPolicy": 2,
+      "ProgressNotifications": 1,
+      "SuppressedNotifications": 2,
+      "AllowAllCommands": false,
+      "UseRegex": false,
+      "CustomPhrase": "",
+      "ReplaceMatch": "",
+      "TestInput": "",
+      "EnabledChannels": [ 24 ],
+      "CommandWhitelist": [ "/echo" ],
+      "CommandBlacklist": [],
+      "Rx": null,
+      "CustomRx": null
+    }
+  ],
+  "CurrentReactionEdit": 0,
+  "DebugLogTypes": true,
+  "ShowReactionNotifications": true,
+  "ShowSuppressedReactionNotifications": false,
+  "DefaultCommandWhitelist": [],
+  "DefaultCommandBlacklist": [ "/sit", "/groundsit", "/lounge" ],
+  "DefaultAllowAllCommands": false,
+  "DefaultMotionOnly": true,
+  "DefaultEnabledChannels": [],
+  "MaxRegexLength": 1000
+}

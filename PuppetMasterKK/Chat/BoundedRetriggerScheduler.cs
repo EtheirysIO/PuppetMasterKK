@@ -16,6 +16,7 @@ internal sealed class BoundedRetriggerScheduler<T>(
     private bool isDraining;
     private long generation;
     private CancellationTokenSource? drainerCancellation;
+    private CancellationToken lifetime;
 
     public int PendingCount
     {
@@ -48,6 +49,7 @@ internal sealed class BoundedRetriggerScheduler<T>(
 
             isDraining = true;
             generation++;
+            lifetime = lifetimeToken;
             drainerCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetimeToken);
             return DrainAsync(generation, drainerCancellation.Token);
         }
@@ -74,6 +76,7 @@ internal sealed class BoundedRetriggerScheduler<T>(
 
     private async Task DrainAsync(long drainerGeneration, CancellationToken drainerToken)
     {
+        var failed = false;
         try
         {
             while (true)
@@ -103,6 +106,7 @@ internal sealed class BoundedRetriggerScheduler<T>(
         }
         catch (Exception exception)
         {
+            failed = true;
             int discarded;
             lock (sync)
                 discarded = queue.Count;
@@ -114,10 +118,20 @@ internal sealed class BoundedRetriggerScheduler<T>(
             {
                 if (generation == drainerGeneration)
                 {
-                    queue.Clear();
-                    isDraining = false;
                     drainerCancellation?.Dispose();
                     drainerCancellation = null;
+                    if (!failed && queue.Count > 0 && !lifetime.IsCancellationRequested)
+                    {
+                        // A trigger arrived after the last peek but before this cleanup: keep draining.
+                        generation++;
+                        drainerCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+                        _ = DrainAsync(generation, drainerCancellation.Token);
+                    }
+                    else
+                    {
+                        queue.Clear();
+                        isDraining = false;
+                    }
                 }
             }
         }

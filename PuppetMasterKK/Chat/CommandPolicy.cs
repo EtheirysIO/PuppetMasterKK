@@ -11,6 +11,9 @@ internal enum CommandKind
     Emote,
     Game,
     Chat,
+    // Game commands with real consequences (teleporting costs gil, leaving the party, changing gear...): never
+    // covered by "Any game command", always allowed one by one.
+    Sensitive,
     Plugin,
     // Never runs, whatever the reaction allows (logout, shutdown, PuppetMasterKK's and Dalamud's own commands).
     Blocked,
@@ -34,6 +37,12 @@ internal sealed class CommandCatalog
         "/cwl1", "/cwl2", "/cwl3", "/cwl4", "/cwl5", "/cwl6", "/cwl7", "/cwl8",
     ];
 
+    private static readonly string[] SensitiveCommandForms =
+    [
+        "/teleport", "/tp", "/return", "/partycmd", "/pcmd", "/leave", "/gearset", "/gs", "/blacklist", "/blist",
+        "/friendlist", "/flist", "/trade", "/invite", "/kick",
+    ];
+
     // English names of the commands that never run. The catalog maps them to the client's own names (the game
     // knows each command by its English name as well), so the block holds on every client language.
     private static readonly string[] AlwaysBlockedForms = ["/logout", "/shutdown", "/puppetmaster", "/puppetmasterkk", "/pmkk"];
@@ -41,6 +50,7 @@ internal sealed class CommandCatalog
     private readonly Dictionary<string, string> canonical = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> emotes = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> chat = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> sensitive = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> blocked = new(StringComparer.OrdinalIgnoreCase);
 
     public static CommandCatalog Empty { get; } = new([], []);
@@ -61,6 +71,8 @@ internal sealed class CommandCatalog
             chat.Add(Canonicalize(form));
         foreach (var form in AlwaysBlockedForms)
             blocked.Add(Canonicalize(form));
+        foreach (var form in SensitiveCommandForms)
+            sensitive.Add(Canonicalize(form));
     }
 
     // canonicalCommand must come from Canonicalize.
@@ -97,11 +109,6 @@ internal sealed class CommandCatalog
         return canonical.TryGetValue(key, out var main) ? main : key;
     }
 
-    public bool IsKnown(string command)
-    {
-        return canonical.ContainsKey(Normalize(command));
-    }
-
     public bool IsEmote(string command)
     {
         return emotes.Contains(Canonicalize(command));
@@ -116,6 +123,8 @@ internal sealed class CommandCatalog
             return CommandKind.Emote;
         if (chat.Contains(main))
             return CommandKind.Chat;
+        if (sensitive.Contains(main))
+            return CommandKind.Sensitive;
         if (canonical.ContainsKey(main))
             return CommandKind.Game;
         if (isPluginCommand != null && isPluginCommand(Normalize(command)))
@@ -184,10 +193,35 @@ internal static class CommandPolicy
         reason = kind switch
         {
             CommandKind.Chat => "chat commands must be allowed one by one",
+            CommandKind.Sensitive => "this command must be allowed one by one",
             CommandKind.Plugin => "plugin commands must be allowed one by one",
             CommandKind.Unknown => "not a known command",
             _ => "not allowed by this reaction",
         };
+        return false;
+    }
+
+    // "/wait" (a pause, not a game command): a block entry always turns it off; otherwise it runs when the reaction's
+    // own commands contain it, or when it's on the allow list (it came from a sender's text).
+    public static bool IsWaitAllowed(
+        CommandCatalog catalog,
+        bool fromReactionCommands,
+        IReadOnlySet<string> whitelist,
+        IReadOnlySet<string> blacklist,
+        out string reason)
+    {
+        var localized = catalog.Canonicalize(WaitCommand);
+        if (blacklist.Contains(WaitCommand) || blacklist.Contains(localized))
+        {
+            reason = "blocked by this reaction";
+            return false;
+        }
+        if (fromReactionCommands || whitelist.Contains(WaitCommand) || whitelist.Contains(localized))
+        {
+            reason = "pause";
+            return true;
+        }
+        reason = "a pause in a sender's message must be allowed (add /wait)";
         return false;
     }
 
@@ -239,18 +273,15 @@ internal sealed class CommandRateLimiter(int burst, TimeSpan interval)
 
     public static CommandRateLimiter Shared { get; } = new(3, TimeSpan.FromSeconds(1));
 
-    // Reserves one send and returns how long to wait before it may go out.
-    public TimeSpan Reserve(long nowTimestamp)
+    // How long until a send would be free (zero when one is free now). Takes nothing: a waiting run that gets
+    // cancelled must not leave a booked slot behind (that's how a spammed reaction used to block everything).
+    public TimeSpan TimeUntilFree(long nowTimestamp)
     {
         lock (sync)
         {
-            // The bucket holds at most `burst` sends of credit.
             var earliest = nowTimestamp - (burst - 1) * intervalTicks;
-            if (nextFreeTimestamp < earliest)
-                nextFreeTimestamp = earliest;
-            var waitTicks = Math.Max(0, nextFreeTimestamp - nowTimestamp);
-            nextFreeTimestamp += intervalTicks;
-            return TimeSpan.FromSeconds(waitTicks / (double)Stopwatch.Frequency);
+            var next = Math.Max(nextFreeTimestamp, earliest);
+            return TimeSpan.FromSeconds(Math.Max(0, next - nowTimestamp) / (double)Stopwatch.Frequency);
         }
     }
 

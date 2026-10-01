@@ -96,6 +96,44 @@ Run("PuppetMaster_v2_legacy.json", configuration =>
         "restoring regex defaults should repair an empty base trigger");
 });
 
+Run("PuppetMaster_v3.json", configuration =>
+{
+    Assert(configuration.Version == ConfigVersion.CURRENT, "v3 should migrate to the current version");
+    Assert(configuration.Reactions.Count == 2, "v3 reactions should all come over");
+    var ami = configuration.Reactions[0];
+    Assert(ami.Name == "Ami" && ami.TriggerPhrase == "Ami" && ami.Enabled && ami.EnabledChannels.SequenceEqual([13]),
+        "a v3 reaction should keep its name, phrase, state and channels");
+    Assert(ami.Rx == null, "a saved compiled regex should be dropped on load");
+    Assert(ami.Senders.Anyone && configuration.Reactions[1].Senders.Anyone, "v3 reactions should react to anyone, as before");
+    Assert(ami.ExecutionPolicy == ReactionExecutionPolicy.IgnoreWhileRunning &&
+           configuration.Reactions[1].ExecutionPolicy == ReactionExecutionPolicy.QueueLatestTrigger &&
+           configuration.Reactions[1].CooldownSeconds == 5,
+        "v3 policies and cooldowns should be kept");
+    Assert(configuration.Reactions[1].ProgressNotifications == ReactionNotificationSetting.Enabled &&
+           configuration.Reactions[1].SuppressedNotifications == ReactionNotificationSetting.Disabled,
+        "v3 notification choices should be kept");
+    Assert(configuration.IgnoreOwnMessages, "v3 configs should ignore your own messages from now on");
+    Assert(configuration.EmoteReplies is { Enabled: false, PerPlayerCooldownSeconds: 10 } &&
+           configuration.EmoteReplies.BlockedEmotes.SequenceEqual(["/sit", "/groundsit", "/lounge", "/doze"]),
+        "v3 configs should get emote replies off, with the defaults");
+    Assert(configuration.ShowReactionNotifications && !configuration.ShowSuppressedReactionNotifications,
+        "v3 global notification choices should be kept");
+});
+
+var reviewed = DalamudJson.Load(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "TestConfigs", "PuppetMaster_v3.json")));
+ConfigurationMigrator.MigrateAndNormalize(reviewed);
+Assert(reviewed.ReviewAfterMigration.SequenceEqual(["Ami"]),
+    "migrating a reaction that allowed any command should ask the user to review it");
+
+var repaired = new Configuration();
+repaired.EmoteReplies.PerPlayerCooldownSeconds = 0;
+repaired.EmoteReplies.BlockedEmotes = null!;
+repaired.Reactions.Add(new Reaction { Senders = null! });
+ConfigurationMigrator.MigrateAndNormalize(repaired);
+Assert(repaired.EmoteReplies.PerPlayerCooldownSeconds == EmoteReplySettings.MinimumCooldownSeconds &&
+       repaired.EmoteReplies.BlockedEmotes != null && repaired.Reactions[0].Senders.Anyone,
+    "repair should raise a too-short reply wait, restore lists and give a reaction without senders Anyone");
+
 Run("PuppetMaster_v2_null_collections.json", configuration =>
 {
     Assert(configuration.Version == ConfigVersion.CURRENT, "null-collection fixture should migrate to the current version");
@@ -485,21 +523,6 @@ static void RunPluginUiLogicTests()
         "duplicate custom channel IDs should be rejected");
     Assert(PluginUiLogic.ValidateCustomChannelId(custom, 99, customChannels, _ => false) == null,
         "unique undocumented channel IDs should be accepted");
-    Assert(PluginUiLogic.ShouldShowCustomChannel(
-               new ChannelSetting { ChatType = 5, Name = "EnemyActions" },
-               id => id == 5,
-               _ => "Party"),
-        "a custom channel with a conflicting official ID should remain visible for correction");
-    Assert(!PluginUiLogic.ShouldShowCustomChannel(
-               new ChannelSetting { ChatType = 5, Name = "Party" },
-               id => id == 5,
-               _ => "Party"),
-        "legacy official channel entries should stay hidden from custom-channel settings");
-
-    configuration.ShowReactionNotifications = false;
-    configuration.ShowSuppressedReactionNotifications = true;
-    Assert(!configuration.ShowReactionNotifications && configuration.ShowSuppressedReactionNotifications,
-        "notification UI settings should remain independent");
     Assert(!PluginUiLogic.ResolveNotificationSetting(ReactionNotificationSetting.Inherit, false) &&
            PluginUiLogic.ResolveNotificationSetting(ReactionNotificationSetting.Inherit, true) &&
            PluginUiLogic.ResolveNotificationSetting(ReactionNotificationSetting.Enabled, false) &&
@@ -636,7 +659,7 @@ static void RunDebugLogBufferTests()
     Assert(DebugLogBuffer.Revision == revisionBeforeAdds + 505,
         "log revision should advance for every entry even after the buffer reaches its limit");
 
-    var directory = Path.Combine(Path.GetTempPath(), $"PuppetMaster-LogTests-{Guid.NewGuid():N}");
+    var directory = Path.Combine(Path.GetTempPath(), $"PuppetMasterKK-LogTests-{Guid.NewGuid():N}");
     try
     {
         var exportPath = DebugLogBuffer.SaveSnapshot(directory, entries[..2]);
@@ -881,7 +904,7 @@ static void RunReactionVisualizerStateTests()
 
 static void RunConfigurationUpgradeTransactionTests()
 {
-    var directory = Path.Combine(Path.GetTempPath(), $"PuppetMasterMigrationTests-{Guid.NewGuid():N}");
+    var directory = Path.Combine(Path.GetTempPath(), $"PuppetMasterKK-MigrationTests-{Guid.NewGuid():N}");
     Directory.CreateDirectory(directory);
     try
     {
@@ -1101,11 +1124,71 @@ static void RunCommandPolicyTests()
         "location placeholders should stay literal");
     Assert(CommandPolicy.ConvertPlaceholders("[se.1] [2] [") == "[se.1] <2> [", "only safe placeholders convert, stray brackets stay");
 
+    Assert(catalog.Classify("/pmkk") == CommandKind.Blocked && catalog.Classify("/PuppetMasterKK") == CommandKind.Blocked &&
+           catalog.Classify("/puppetmaster") == CommandKind.Blocked,
+        "this plugin's commands (and the old plugin's) should always be blocked");
+    Assert(!Allowed("/pmkk", ["/pmkk"], [], true) && !Allowed("/puppetmasterkk", ["/puppetmasterkk"], [], true),
+        "this plugin's commands should never run, even when listed and with any game command allowed");
+
+    var travel = new CommandCatalog([["/teleport", "/tp"], ["/partycmd", "/pcmd"], ["/emote", "/em"]], []);
+    Assert(travel.Classify("/tp") == CommandKind.Sensitive && travel.Classify("/pcmd") == CommandKind.Sensitive,
+        "teleporting and party commands should be sensitive");
+    Assert(!CommandPolicy.IsAllowed(travel.Canonicalize("/tp"), travel.Classify("/tp"), travel.CanonicalSet([]),
+            travel.CanonicalSet([]), true, out _),
+        "any game command should not cover teleporting");
+    Assert(CommandPolicy.IsAllowed(travel.Canonicalize("/tp"), travel.Classify("/tp"), travel.CanonicalSet(["/teleport"]),
+            travel.CanonicalSet([]), false, out _),
+        "teleporting can still be allowed one by one");
+
+    var noWaitRules = catalog.CanonicalSet([]);
+    Assert(CommandPolicy.IsWaitAllowed(catalog, true, noWaitRules, noWaitRules, out _),
+        "/wait in the reaction's own commands should pause without an allow entry");
+    Assert(!CommandPolicy.IsWaitAllowed(catalog, false, noWaitRules, noWaitRules, out _),
+        "/wait from a sender's text should need an allow entry");
+    Assert(CommandPolicy.IsWaitAllowed(catalog, false, catalog.CanonicalSet(["/wait"]), noWaitRules, out _),
+        "/wait from a sender's text should run once allowed");
+    Assert(!CommandPolicy.IsWaitAllowed(catalog, true, catalog.CanonicalSet(["/wait"]), catalog.CanonicalSet(["/wait"]), out _),
+        "a /wait block entry should always win");
+    Assert(ReactionCommandMatcher.TemplateHasWait("/wave\n/WAIT 2") && !ReactionCommandMatcher.TemplateHasWait(ReactionCommandMatcher.PhraseReplacement),
+        "only the reaction's own commands count as containing /wait");
+
     Assert(ReactionCommandMatcher.EscapeTriggerPhrase("please.do") == @"please\.do", "trigger phrases should be literal text");
     Assert(ReactionCommandMatcher.EscapeTriggerPhrase("hey (you|simon says") == @"hey\ \(you|simon\ says",
         "alternatives should survive escaping");
-    var trigger = new Regex(@"(?i)\b(?:" + ReactionCommandMatcher.EscapeTriggerPhrase("please.do") + @")\s+(?:\((.*?)\)|(\w+))");
+    Assert(ReactionCommandMatcher.EscapeTriggerPhrase("please do | simon says") == @"please\ do|simon\ says",
+        "spaces around | should not become part of a phrase");
+    Assert(ReactionCommandMatcher.BuildPhrasePattern("please do|") == ReactionCommandMatcher.BuildPhrasePattern("please do") &&
+           ReactionCommandMatcher.BuildPhrasePattern("||") == string.Empty && ReactionCommandMatcher.BuildPhrasePattern(" ") == string.Empty,
+        "an empty alternative must never match every message");
+
+    var trigger = new Regex(ReactionCommandMatcher.BuildPhrasePattern("please.do"));
     Assert(!trigger.IsMatch("pleaseXdo wave") && trigger.IsMatch("please.do wave"), "a dot in the trigger should be literal");
+    Assert(!new Regex(ReactionCommandMatcher.BuildPhrasePattern("please do|")).IsMatch("lol sit"),
+        "a trailing | should not make ordinary chat match");
+
+    string Run(string phrase, string message)
+    {
+        var pattern = new Regex(ReactionCommandMatcher.BuildPhrasePattern(phrase), RegexOptions.None, TimeSpan.FromMilliseconds(250));
+        return ReactionCommandMatcher.TryGenerateCommand(pattern, ReactionCommandMatcher.SanitizeIncoming(message),
+                   ReactionCommandMatcher.PhraseReplacement, out var command, out _) == ReactionMatchStatus.Success
+            ? command : "(no match)";
+    }
+    Assert(ReactionCommandMatcher.FormatCommand(Run("please do", "please do (ac Vercure [t])")).ToString() == "/ac Vercure <t>",
+        "the guide's example should produce /ac Vercure <t>");
+    Assert(Run("please do", "please do wave") == "/wave", "a single word should become the command");
+    Assert(!Run("please do", "please do (wave\r/wait 60\r/wait 60)").Contains('\r') &&
+           !Run("please do", "please do (wave\n/sh hi)").Contains('\n'),
+        "a sender's line breaks must never split one message into several commands");
+    var leaked = ReactionCommandMatcher.FormatCommand(Run("please do", "please do (p I am at <pos> [pos] [flag])"));
+    Assert(!leaked.Args.Contains('<') && !leaked.Args.Contains('>'),
+        "a sender's text must never carry a game placeholder like <pos>");
+    Assert(ReactionCommandMatcher.SanitizeIncoming("a<b>c\td") == "a\uFF1Cb\uFF1Ec d",
+        "angle brackets become look-alikes and control characters become spaces");
+
+    var parsed = ReactionCommandMatcher.FormatCommand("/SH\u3000hello [me]");
+    Assert(parsed.Main == "/sh" && parsed.Args == "hello <me>", "a full-width space should end the command name");
+    Assert(ReactionCommandMatcher.FormatCommand("  ").Main.Length == 0 && ReactionCommandMatcher.FormatCommand("hello").Main == "hello",
+        "blank lines and plain text should parse without a command");
 
     // Static setup runs in file order: these fail here (not in game) if a static is used before it's set.
     Assert(CommandCatalog.Empty.Classify("/logout") == CommandKind.Blocked && CommandRateLimiter.Shared != null,
@@ -1132,6 +1215,12 @@ static void RunSenderFilterTests()
     Assert(!named.Allows(stranger with { World = "Cactuar" }), "Name@World should not match another world");
     Assert(named.Allows(new SenderInfo("Other Person", "Cactuar", false, false, false, false)), "a bare name should match any world");
 
+    Assert(!new SenderFilter { Friends = false, FreeCompany = false, Party = false, Named = ["Some Body@"] }.Allows(stranger),
+        "\"Name@\" names no world and should match nobody, not everyone with that name");
+    Assert(PluginUiLogic.IsPublicChannel(37) && PluginUiLogic.IsPublicChannel(107) && PluginUiLogic.IsPublicChannel(10) &&
+           !PluginUiLogic.IsPublicChannel(24),
+        "cross-world linkshells and Say count as public; FC chat doesn't");
+
     var clone = named.Clone();
     clone.Named.Add("Third One");
     Assert(named.Named.Count == 2, "Clone should copy the named list");
@@ -1145,16 +1234,22 @@ static void RunRateLimiterTests()
 {
     var limiter = new CommandRateLimiter(3, TimeSpan.FromSeconds(1));
     var now = 1_000_000 * System.Diagnostics.Stopwatch.Frequency;
-    Assert(limiter.Reserve(now) == TimeSpan.Zero && limiter.Reserve(now) == TimeSpan.Zero && limiter.Reserve(now) == TimeSpan.Zero,
+    var second = System.Diagnostics.Stopwatch.Frequency;
+    Assert(limiter.TimeUntilFree(now) == TimeSpan.Zero && limiter.TryAcquire(now) && limiter.TryAcquire(now) && limiter.TryAcquire(now),
         "a burst of three should go out at once");
-    var fourth = limiter.Reserve(now);
-    var fifth = limiter.Reserve(now);
-    Assert(Math.Abs(fourth.TotalSeconds - 1) < 0.001 && Math.Abs(fifth.TotalSeconds - 2) < 0.001,
-        "after the burst, sends should be one second apart");
-    var later = now + 60 * System.Diagnostics.Stopwatch.Frequency;
-    Assert(limiter.Reserve(later) == TimeSpan.Zero, "credit should come back after a quiet minute");
-    Assert(limiter.Reserve(later) == TimeSpan.Zero && limiter.Reserve(later) == TimeSpan.Zero && limiter.Reserve(later) > TimeSpan.Zero,
-        "credit should never exceed the burst size");
+    Assert(!limiter.TryAcquire(now) && Math.Abs(limiter.TimeUntilFree(now).TotalSeconds - 1) < 0.001,
+        "after the burst, the next send should be a second away");
+    for (var i = 0; i < 100; i++)
+        limiter.TimeUntilFree(now); // runs that wait and get cancelled
+    Assert(Math.Abs(limiter.TimeUntilFree(now).TotalSeconds - 1) < 0.001,
+        "waiting (and giving up) must never book slots: no backlog");
+    Assert(limiter.TryAcquire(now + second) && !limiter.TryAcquire(now + second),
+        "after a second, exactly one more send should be free");
+    var later = now + 60 * second;
+    Assert(limiter.TryAcquire(later) && limiter.TryAcquire(later) && limiter.TryAcquire(later) && !limiter.TryAcquire(later),
+        "credit should come back after a quiet minute, but never beyond the burst");
+    limiter.Reset();
+    Assert(limiter.TryAcquire(later), "Reset should free the limiter");
 
     var skipper = new CommandRateLimiter(2, TimeSpan.FromSeconds(1));
     Assert(skipper.TryAcquire(now) && skipper.TryAcquire(now), "TryAcquire should take the free burst");

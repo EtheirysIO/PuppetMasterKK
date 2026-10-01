@@ -136,9 +136,11 @@ internal sealed partial class MainWindow
                 }
                 finally
                 {
-                    // Destroy ends the clipper; while the kit is unwinding a throw, its recovery ends the table instead.
-                    if (!KitRecovery.Unwinding)
-                        clipper.Destroy();
+                    // While the kit unwinds a throw, its recovery ends the table: an item count of -1 makes the
+                    // clipper's End skip the cursor work, so it can still be freed.
+                    if (KitRecovery.Unwinding)
+                        clipper.ItemsCount = -1;
+                    clipper.Destroy();
                 }
             }
         }
@@ -162,7 +164,8 @@ internal sealed partial class MainWindow
 
         ImGui.TableNextColumn();
         ImGui.AlignTextToFramePadding();
-        ImGui.TextColored(colorLogs ? color : Theme.Ink, W.Fit(entry.Text, ImGui.GetContentRegionAvail().X));
+        // One line per row (the clipper counts on equal rows); the tooltip has the whole message.
+        ImGui.TextColored(colorLogs ? color : Theme.Ink, W.Fit(FirstLine(entry.Text), ImGui.GetContentRegionAvail().X));
         if (ImGui.IsItemHovered())
             W.Tooltip(entry.Text);
 

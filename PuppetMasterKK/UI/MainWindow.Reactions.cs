@@ -21,7 +21,9 @@ internal sealed partial class MainWindow
     private Reaction? allowAllTarget;
     private string allowInput = string.Empty;
     private string blockInput = string.Empty;
-    private string namedInput = string.Empty;
+    // What's typed in each "Also these players" box, per card (the reaction editor and Emote replies have their own).
+    private readonly System.Collections.Generic.Dictionary<string, string> namedInputs = new();
+    private long previewBuiltAt;
 
     // The test preview is worked out when something it depends on changes, not every frame (a slow pattern would
     // otherwise run on the game thread 60 times a second).
@@ -43,7 +45,8 @@ internal sealed partial class MainWindow
         Config.CurrentReactionEdit = index;
         if (Service.IsValidReactionIndex(index))
             Service.InitializeRegex(index);
-        allowInput = blockInput = namedInput = string.Empty;
+        allowInput = blockInput = string.Empty;
+        namedInputs.Remove("reactionSenders");
         previewDirty = true;
         Changed();
     }
@@ -204,9 +207,9 @@ internal sealed partial class MainWindow
                           allowAllTarget == null
                               ? "Let new reactions run any game command that isn't blocked?"
                               : "Let this reaction run any game command that isn't blocked?", "Allow",
-                          detail: "Chat and plugin commands still have to be listed one by one, and /logout, /shutdown, " +
-                                  "/puppetmaster and /xl… never run. Use this only with senders and channels you trust.") &&
-            true)
+                          detail: "Chat commands, other plugins' commands and ones like teleporting or leaving the party still " +
+                                  "have to be listed one by one, and /logout, /shutdown, /pmkk and /xl… never run. Use this only " +
+                                  "with senders and channels you trust."))
         {
             if (allowAllTarget != null)
             {
@@ -245,7 +248,10 @@ internal sealed partial class MainWindow
 
         DrawTriggerCard(reaction);
         DrawSendersCard("reactionSenders", reaction.Senders, () => RulesChanged(reaction),
-                        PluginUiLogic.ListensToStrangers(reaction));
+                        PluginUiLogic.ListensToStrangers(reaction)
+                            ? "Anyone who can talk in a public channel you picked (Say, Shout, Yell, Tell, Party, Novice Network, " +
+                              "cross-world linkshells…) can trigger this reaction."
+                            : null);
         DrawChannelsCard(reaction);
         DrawCommandsCard(reaction);
         DrawTestCard(reaction);
@@ -309,7 +315,7 @@ internal sealed partial class MainWindow
         }
     }
 
-    private void DrawSendersCard(string id, SenderFilter senders, Action changed, bool strangerWarning)
+    private void DrawSendersCard(string id, SenderFilter senders, Action changed, string? warning)
     {
         using (W.Card(id, "Who can trigger it", senders.Describe()))
         {
@@ -327,7 +333,8 @@ internal sealed partial class MainWindow
             {
                 Gap(2f);
                 var friends = senders.Friends;
-                if (W.Toggle("Friends##friends", ref friends))
+                if (W.Toggle("Friends##friends", ref friends,
+                             tooltip: "Players on your friend list (open it once this session) and friends nearby"))
                 {
                     senders.Friends = friends;
                     changed();
@@ -350,16 +357,17 @@ internal sealed partial class MainWindow
 
                 Gap();
                 Label("Also these players");
+                var namedInput = namedInputs.GetValueOrDefault(id, string.Empty);
                 if (StringListEditor("named", senders.Named, ref namedInput, "Name@World (or just Name for any world)",
                                      "Nobody else.", AddNamed))
                     changed();
+                namedInputs[id] = namedInput;
             }
 
-            if (strangerWarning)
+            if (warning != null)
             {
                 Gap(2f);
-                W.Banner("Anyone who can talk in Say, Shout, Yell, Tell, Party or Novice Network can trigger this reaction.",
-                         Theme.Warning, icon: FontAwesomeIcon.ExclamationTriangle);
+                W.Banner(warning, Theme.Warning, icon: FontAwesomeIcon.ExclamationTriangle);
             }
         }
 
@@ -424,7 +432,8 @@ internal sealed partial class MainWindow
 
             Gap(2f);
             Hint("Emotes always run unless blocked. Chat commands (say, shout, tell, party, FC…) and other plugins' commands " +
-                 "only run when listed as allowed. /logout, /shutdown, /puppetmaster and /xl… never run.");
+                 "only run when listed as allowed, and so do teleporting, leaving the party and changing gear. " +
+                 "/logout, /shutdown, /pmkk and /xl… never run.");
         }
     }
 
@@ -440,7 +449,8 @@ internal sealed partial class MainWindow
                 Changed();
             }
 
-            if (previewDirty || !ReferenceEquals(previewFor, reaction))
+            // Also refreshed every couple of seconds: other plugins' commands can come and go.
+            if (previewDirty || !ReferenceEquals(previewFor, reaction) || Environment.TickCount64 - previewBuiltAt > 2000)
                 BuildPreview(reaction);
 
             if (string.IsNullOrWhiteSpace(reaction.TestInput))
@@ -478,6 +488,7 @@ internal sealed partial class MainWindow
     {
         previewFor = reaction;
         previewDirty = false;
+        previewBuiltAt = Environment.TickCount64;
         preview.Clear();
         previewError = null;
         previewMatched = string.Empty;
@@ -487,7 +498,7 @@ internal sealed partial class MainWindow
 
         var status = ReactionCommandMatcher.TryGenerateCommand(
             ReactionCommandMatcher.SelectPattern(reaction),
-            reaction.TestInput,
+            ReactionCommandMatcher.SanitizeIncoming(reaction.TestInput),
             reaction.UseRegex ? reaction.ReplaceMatch : Service.GetDefaultReplaceMatch(),
             out var command,
             out var matched,

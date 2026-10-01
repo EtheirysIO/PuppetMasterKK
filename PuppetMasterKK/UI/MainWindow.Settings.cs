@@ -79,8 +79,8 @@ internal sealed partial class MainWindow
 
         using (W.Card("help", "Commands"))
         {
-            Hint("/puppetmaster opens this window. /puppetmaster on|off [name] turns every reaction (or the named ones) on or " +
-                 "off. /puppetmaster logging on|off|clear|save controls the message log, and /puppetmaster viz opens Activity.");
+            Hint("/pmkk (or /puppetmasterkk) opens this window. /pmkk on|off [name] turns every reaction (or the named ones) " +
+                 "on or off. /pmkk logging on|off|clear|save controls the message log, and /pmkk viz opens Activity.");
         }
     }
 

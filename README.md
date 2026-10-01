@@ -14,7 +14,7 @@ PuppetMasterKK lets trusted chat messages boss your character around. A matching
 
 - React to simple phrases or messages with changing text.
 - Listen only to the chat channels you choose, and only to the people you choose: friends, your Free Company, your party, or named players.
-- Allow safe commands and block commands you do not want. Logging out, shutting down and reconfiguring plugins are never allowed.
+- Allow safe commands and block commands you do not want. Logging out, shutting down, and Dalamud's or PuppetMasterKK's own commands are never allowed; teleporting, chat and other plugins' commands must be allowed one by one.
 - Ignore repeated requests, save them for later, keep only the newest, or react again immediately.
 - Run several command lines with short waits between them.
 - Answer emotes aimed at you with the same emote (formerly the Right Back At You plugin).

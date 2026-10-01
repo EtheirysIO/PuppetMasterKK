@@ -83,6 +83,9 @@ internal sealed class EmoteReplies : IDisposable
             var settings = Service.configuration?.EmoteReplies;
             if (disposed || settings == null || !settings.Enabled)
                 return;
+            // Never mid-fight: answering would change your target.
+            if (Service.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.InCombat])
+                return;
             var local = Service.ObjectTable.LocalPlayer;
             if (local == null)
                 return;
@@ -114,11 +117,17 @@ internal sealed class EmoteReplies : IDisposable
             // An emote with no text command has nothing to send (sending "" or " motion" would post plain chat).
             if (string.IsNullOrWhiteSpace(command) || !command.StartsWith('/'))
                 return;
+            var canonical = Service.Commands.Canonicalize(command);
+            foreach (var blockedEmote in settings.BlockedEmotes)
+            {
+                if (Service.Commands.Canonicalize(blockedEmote) == canonical)
+                    return;
+            }
 
             if (!CommandRateLimiter.Shared.TryAcquire(now))
                 return;
 
-            nextReply[key] = now + Math.Max(0, settings.PerPlayerCooldownSeconds) * Stopwatch.Frequency;
+            nextReply[key] = now + Math.Max(EmoteReplySettings.MinimumCooldownSeconds, settings.PerPlayerCooldownSeconds) * Stopwatch.Frequency;
             PruneCooldowns(now);
 
             if (settings.TargetBack)

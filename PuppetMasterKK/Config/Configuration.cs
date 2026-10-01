@@ -102,6 +102,12 @@ namespace PuppetMasterKK
         // both reply to emotes from emoting at each other forever.
         public int PerPlayerCooldownSeconds { get; set; } = 10;
         public SenderFilter Senders { get; set; } = new();
+        // Emotes never answered (postures that stick: a stranger shouldn't be able to make you lie down).
+        [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
+        public List<string> BlockedEmotes { get; set; } = ["/sit", "/groundsit", "/lounge", "/doze"];
+
+        // Below this, two players who both answer emotes would keep answering each other.
+        public const int MinimumCooldownSeconds = 3;
     }
 
     [Serializable]
@@ -143,6 +149,12 @@ namespace PuppetMasterKK
         public EmoteReplySettings EmoteReplies { get; set; } = new();
         // Set once the old Right Back At You settings have been looked for, so they're imported only once.
         public bool CopycatImportChecked { get; set; } = false;
+        // Set once the old Puppet Master's settings have been looked for, so they're imported at most once.
+        public bool LegacyImportChecked { get; set; } = false;
+
+        // Migrated reactions that let anyone run any game command: shown to the user once, then cleared. Not saved.
+        [JsonIgnore]
+        public List<string> ReviewAfterMigration { get; } = [];
 
         // Appearance (phys1ksUI).
         public phys1ksUI.AccentColor Accent { get; set; } = phys1ksUI.AccentColor.Orange;

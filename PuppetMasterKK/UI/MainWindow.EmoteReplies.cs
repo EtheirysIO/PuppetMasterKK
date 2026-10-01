@@ -6,6 +6,8 @@ namespace PuppetMasterKK.UI;
 
 internal sealed partial class MainWindow
 {
+    private string blockedEmoteInput = string.Empty;
+
     private void DrawEmoteRepliesPage()
     {
         var settings = Config.EmoteReplies;
@@ -19,7 +21,8 @@ internal sealed partial class MainWindow
             W.TextWrapped("When someone uses an emote on you, answer with the same emote. (This was the Right Back At You plugin.)", Theme.Dim);
             Gap();
             var enabled = settings.Enabled;
-            if (W.Toggle("Reply to emotes##emoteRepliesOn", ref enabled, enabled: replies?.Available != false))
+            // Can always be turned off, even while unavailable.
+            if (W.Toggle("Reply to emotes##emoteRepliesOn", ref enabled, enabled: replies?.Available != false || settings.Enabled))
             {
                 settings.Enabled = enabled;
                 Changed();
@@ -43,15 +46,22 @@ internal sealed partial class MainWindow
             Gap();
             Label("Wait before answering the same player again");
             var cooldown = settings.PerPlayerCooldownSeconds;
-            if (W.NumberInput("##replyCooldown", ref cooldown, 0, 3600, 1, Theme.S(160f), "seconds"))
+            if (W.NumberInput("##replyCooldown", ref cooldown, EmoteReplySettings.MinimumCooldownSeconds, 3600, 1, Theme.S(160f), "seconds"))
             {
                 settings.PerPlayerCooldownSeconds = cooldown;
                 Changed();
             }
-            Hint("Stops two players who both answer emotes from emoting at each other forever.");
+            Hint("Stops two players who both answer emotes from emoting at each other forever. Replies pause while you're in combat.");
+
+            Gap();
+            W.Heading("Never answer with");
+            if (StringListEditor("blockedEmotes", settings.BlockedEmotes, ref blockedEmoteInput, "/emote", "Nothing blocked.",
+                                 input => PluginUiLogic.AddCommandRule(settings.BlockedEmotes, [], input)))
+                Changed();
         }
 
-        DrawSendersCard("emoteSenders", settings.Senders, Changed, settings.Senders.Anyone);
+        DrawSendersCard("emoteSenders", settings.Senders, Changed,
+                        settings.Senders.Anyone ? "Anyone near you can make you emote back." : null);
 
         if (replies != null)
         {

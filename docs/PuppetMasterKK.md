@@ -15,8 +15,8 @@ PuppetMasterKK lets trusted chat messages boss your character around—wave, pos
 > [!IMPORTANT]
 > There can be only one. PuppetMasterKK replaces the original Puppet Master and Right Back At You. If another puppet-master
 > plugin is loaded, every trigger would fire twice, so PuppetMasterKK warns you when it starts: disable or uninstall the
-> other one. On its first start, PuppetMasterKK brings over your Puppet Master reactions and settings; the old file isn't
-> changed.
+> other one. On its first start, PuppetMasterKK brings over your Puppet Master reactions and settings (from its settings
+> file, or the newest backup of it that reads); the old files aren't changed.
 
 The sidebar picks the page:
 
@@ -79,7 +79,7 @@ Wrap the entire command and its arguments in parentheses. PuppetMasterKK removes
 | `please do wave` | `/wave` |
 | `please do (ac Vercure [t])` | `/ac Vercure <t>` |
 
-In incoming messages, write targets with square brackets. PuppetMasterKK turns `[t]`, `[tt]`, `[me]`, `[mo]`, `[f]` and `[1]`–`[8]` into the angle brackets the game needs. Other placeholders, such as `[pos]` and `[flag]`, are left as they are, so nobody can make you post where you are.
+In incoming messages, write targets with square brackets. PuppetMasterKK turns `[t]`, `[tt]`, `[me]`, `[mo]`, `[f]` and `[1]`–`[8]` into the angle brackets the game needs. Other placeholders, such as `[pos]` and `[flag]`, are left as they are, and angle brackets typed by the sender (`<pos>`) are turned into look-alike characters, so nobody can make you post where you are. Line breaks in a sender's message become spaces, so one message can never turn into several commands.
 
 ### Testing
 
@@ -122,7 +122,7 @@ Each reaction chooses who can set it off:
 - **Party and alliance** — your party and alliance, and their chat channels.
 - **Also these players** — named players, as `Name@World`, or just `Name` for any world.
 
-New reactions start with Friends, Free Company and Party. Reactions from before this option existed were set to **Anyone**, so they keep working as they did; review them. A reaction that **Anyone** can trigger from Say, Shout, Yell, Tell, Party or Novice Network shows a warning, because strangers can trigger it.
+New reactions start with Friends, Free Company and Party. Reactions from before this option existed were set to **Anyone**, so they keep working as they did; review them. A reaction that **Anyone** can trigger from a public channel (Say, Shout, Yell, Tell, Party, Alliance, Novice Network, the emote channels or a cross-world linkshell) shows a warning, because strangers can trigger it.
 
 Your own chat lines never trigger reactions (**Settings → General → Ignore my own messages**).
 
@@ -133,8 +133,8 @@ Your own chat lines never trigger reactions (**Settings → General → Ignore m
 1. Commands under **Blocked** never run.
 2. Emotes run unless they're blocked.
 3. Other commands must be under **Allowed**, unless **Any game command** is selected.
-4. Chat commands (say, shout, tell, party, FC, linkshells, `/em`…) and other plugins' commands only run when listed under **Allowed** (shown as **Also allowed** with **Any game command**).
-5. `/logout`, `/shutdown`, `/pmkk` and Dalamud's `/xl…` commands never run.
+4. Chat commands (say, shout, tell, party, FC, linkshells, `/em`…), other plugins' commands, and game commands with real consequences (teleporting, `/return`, party commands such as leaving or kicking, gear sets, the blacklist and friend list, trading, inviting) only run when listed under **Allowed** (shown as **Also allowed** with **Any game command**).
+5. `/logout`, `/shutdown`, `/pmkk` (and `/puppetmasterkk`, and the old `/puppetmaster`) and Dalamud's `/xl…` commands never run.
 
 Rules apply to the command name, not its arguments: for the Vercure example, allow `/ac`. A command's short forms count as the same command, so blocking `/shout` also blocks `/sh`.
 
@@ -175,7 +175,7 @@ With a regex trigger, the commands can be one per line. Every line is checked on
 /echo done
 ```
 
-`/wait` pauses before the next line, for up to 60 seconds, and takes decimals such as `/wait 0.5` (always with a dot). It doesn't need to be allowed; block `/wait` to turn pauses off.
+`/wait` pauses before the next line, for up to 60 seconds, and takes decimals such as `/wait 0.5` (always with a dot). A `/wait` in the reaction's own commands doesn't need to be allowed. One that comes from a sender's message ("please do (wait 60)") only runs if `/wait` is under **Allowed**, so strangers can't keep a reaction busy. Block `/wait` to turn pauses off entirely.
 
 ### What running means
 
@@ -213,8 +213,9 @@ Use **Restart immediately** for short reactions that should respond again right 
 - Cooldown starts when a reaction starts.
 - Waiting requests run in the order they arrived, and a new message never jumps ahead of them.
 - **Queue every trigger** keeps up to 16 waiting requests per reaction.
+- Only a busy reaction saves requests: one that arrives while the reaction is idle but still cooling down is ignored.
 - **Restart immediately** stops unsent lines, clears older waiting requests, and starts the newest request without cooldown.
-- Turning a reaction off or deleting it stops its current wait and clears its waiting requests. Changing its settings clears waiting requests; a run already going may finish with the settings it started with.
+- Turning a reaction off or deleting it stops its current wait and clears its waiting requests. Changing its senders, commands or emote text stops the current run and clears waiting requests; other changes clear waiting requests, and a run already going finishes with the settings it started with.
 
 </details>
 
@@ -228,15 +229,17 @@ To stop everything at once:
 /pmkk off
 ```
 
-This also clears waiting requests. **Cancel** in the sidebar stops what's running now; **Stop** on the Activity page stops one reaction.
+This also clears waiting requests. **Cancel** in the sidebar stops every reaction and clears what's waiting; **Stop** on the Activity page stops one reaction.
 
 ## Emote replies
 
-**Emote replies** answers an emote aimed at you with the same emote. This used to be the separate *Right Back At You* plugin; its settings are brought over once, and you'll be reminded to remove it so emotes aren't answered twice.
+**Emote replies** answers an emote aimed at you with the same emote. This used to be the separate *Right Back At You* plugin; its settings are brought over once. If it's still loaded, PuppetMasterKK warns you to remove it so emotes aren't answered twice.
 
 - **Target them first** targets the player so the emote is aimed back at them.
 - **Hide emote text** plays the animation without the chat line.
-- **Wait before answering the same player again** (10 seconds by default) stops two players who both answer emotes from emoting at each other forever.
+- **Wait before answering the same player again** (10 seconds by default, at least 3) stops two players who both answer emotes from emoting at each other forever.
+- **Never answer with** lists emotes that are never copied back (sitting, lounging and dozing by default, so nobody can make you lie down).
+- Replies pause while you're in combat, so your target never changes mid-fight.
 - **Who can trigger it** works as it does for reactions.
 
 If a game update moves the emote function, the page says emote replies are unavailable until PuppetMasterKK is updated.
@@ -350,4 +353,4 @@ When PuppetMasterKK upgrades settings from an older version, it first saves a da
 
 ### Where is the configuration?
 
-Dalamud stores it in the XIVLauncher plugin configuration folder (`pluginConfigs\PuppetMaster.json`). Avoid editing it while the game is running.
+Dalamud stores it in the XIVLauncher plugin configuration folder (`pluginConfigs\PuppetMasterKK.json`). Avoid editing it while the game is running.

@@ -99,17 +99,13 @@ namespace PuppetMasterKK
                     ChatHandler.CancelReaction(configuration.Reactions[i]);
             }
             configuration?.Save();
-#if DEBUG
-            if (configuration != null && configuration.Reactions.Count > 0)
-                ChatGui.Print("[PuppetMasterKK] "+(enabled ? "Enabled" : "Disabled") + $" {configuration.Reactions.Count} reaction" + (configuration.Reactions.Count > 1 ? "s" : ""));
-#endif
+            if (configuration != null)
+                ChatGui.Print($"[PuppetMasterKK] {(enabled ? "Turned on" : "Turned off")} {Plural(configuration.Reactions.Count, "reaction")}.");
         }
 
-        public static void SetEnabled(string name, bool enabled = true, StringComparison sc = StringComparison.Ordinal)
+        public static void SetEnabled(string name, bool enabled = true, StringComparison sc = StringComparison.OrdinalIgnoreCase)
         {
-#if DEBUG
             var found = 0;
-#endif
             for (var i = 0; i < configuration?.Reactions.Count; i++)
             {
                 if (configuration.Reactions[i].Name.Equals(name, sc))
@@ -117,19 +113,16 @@ namespace PuppetMasterKK
                     configuration.Reactions[i].Enabled = enabled;
                     if (!enabled)
                         ChatHandler.CancelReaction(configuration.Reactions[i]);
-#if DEBUG
                     found++;
-#endif
                 }
             }
-#if DEBUG
-            if (found > 0)
-            {
-                ChatGui.Print("[PuppetMasterKK] " + (enabled ? "Enabled" : "Disabled") + $" {found} reaction" + (found > 1 ? "s" : "") + $" with name={name}");
-            }
-#endif
+            ChatGui.Print(found > 0
+                ? $"[PuppetMasterKK] {(enabled ? "Turned on" : "Turned off")} {Plural(found, "reaction")} named \"{name}\"."
+                : $"[PuppetMasterKK] No reaction is named \"{name}\".");
             configuration?.Save();
         }
+
+        private static string Plural(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
 
         public static bool IsValidReactionIndex(int index)
         {
@@ -138,13 +131,11 @@ namespace PuppetMasterKK
 
         public static String GetDefaultRegex(int index)
         {
-            return IsValidReactionIndex(index) && !configuration!.Reactions[index].TriggerPhrase.IsNullOrWhitespace() ?
-                @"(?i)\b(?:" + ReactionCommandMatcher.EscapeTriggerPhrase(configuration.Reactions[index].TriggerPhrase) + @")\s+(?:\((.*?)\)|(\w+))" : @"";
+            return IsValidReactionIndex(index)
+                ? ReactionCommandMatcher.BuildPhrasePattern(configuration!.Reactions[index].TriggerPhrase)
+                : string.Empty;
         }
-        public static String GetDefaultReplaceMatch()
-        {
-            return @"/$1$2";
-        }
+        public static String GetDefaultReplaceMatch() => ReactionCommandMatcher.PhraseReplacement;
 
         private static void InitializeRegex()
         {
@@ -180,38 +171,7 @@ namespace PuppetMasterKK
             }
         }
 
-        public struct ParsedTextCommand
-        {
-            public ParsedTextCommand() {}
-            public string Main = string.Empty;
-            public string Args = string.Empty;
-
-            public override readonly string ToString()
-            {
-                return (Main + " " + Args).Trim();
-            }
-        }
-
-        public static ParsedTextCommand FormatCommand(string command)
-        {
-            ParsedTextCommand textCommand = new();
-            command = command.Trim();
-            if (command.Length == 0)
-                return textCommand;
-            if (!command.StartsWith('/'))
-            {
-                textCommand.Main = command;
-                return textCommand;
-            }
-
-            // The command name ends at the first whitespace of any kind (a full-width space must not hide the name).
-            var end = 0;
-            while (end < command.Length && !char.IsWhiteSpace(command[end]))
-                end++;
-            textCommand.Main = command[..end].ToLowerInvariant();
-            textCommand.Args = CommandPolicy.ConvertPlaceholders(command[end..].Trim());
-            return textCommand;
-        }
+        public static ParsedTextCommand FormatCommand(string command) => ReactionCommandMatcher.FormatCommand(command);
 
         // UI-side check; must run on the framework thread (it reads the registered plugin commands).
         public static bool IsCommandAllowed(Reaction reaction, string command, out string reason)
@@ -220,9 +180,13 @@ namespace PuppetMasterKK
             var canonical = catalog.Canonicalize(command);
             if (CommandCatalog.Normalize(command) == CommandPolicy.WaitCommand)
             {
-                var blocked = catalog.CanonicalSet(reaction.CommandBlacklist).Contains(CommandPolicy.WaitCommand);
-                reason = blocked ? "blocked by this reaction" : "pause";
-                return !blocked;
+                var replacement = reaction.UseRegex ? reaction.ReplaceMatch : GetDefaultReplaceMatch();
+                return CommandPolicy.IsWaitAllowed(
+                    catalog,
+                    ReactionCommandMatcher.TemplateHasWait(replacement),
+                    catalog.CanonicalSet(reaction.CommandWhitelist),
+                    catalog.CanonicalSet(reaction.CommandBlacklist),
+                    out reason);
             }
             return CommandPolicy.IsAllowed(
                 canonical,
@@ -233,58 +197,75 @@ namespace PuppetMasterKK
                 out reason);
         }
 
-        public static ParsedTextCommand GetTestInputCommand(int index)
+        // True when this load brought over the old Puppet Master's settings.
+        public static bool LegacyConfigImported { get; private set; }
+        // Old Puppet Master files that exist but couldn't be read (shown to the user).
+        public static List<string> LegacyUnreadable { get; } = [];
+
+        // PuppetMasterKK keeps its own settings file. The old Puppet Master's (left untouched) is read once: its main
+        // file first, then its backups newest first, taking the first that reads and migrates. Forks wrote other
+        // formats, so a file that doesn't read is skipped, not fatal.
+        private static Configuration? TryLoadLegacyConfig()
         {
-            ParsedTextCommand result = new();
+            var directory = PluginInterface.ConfigFile.DirectoryName;
+            if (directory == null || !Directory.Exists(directory))
+                return null;
+            var candidates = new List<string>();
+            var main = Path.Combine(directory, "PuppetMaster.json");
+            if (File.Exists(main))
+                candidates.Add(main);
+            var backups = Directory.GetFiles(directory, "PuppetMaster.*.backup.json");
+            Array.Sort(backups, StringComparer.OrdinalIgnoreCase);
+            Array.Reverse(backups); // names carry a sortable timestamp: newest first
+            candidates.AddRange(backups);
 
-            if (!IsValidReactionIndex(index) ||
-                configuration!.Reactions[index].TestInput.IsNullOrWhitespace()) return result;
-
-            var reaction = configuration.Reactions[index];
-            var pattern = ReactionCommandMatcher.SelectPattern(reaction);
-            if (pattern == null)
-                return result;
-
-            var status = ReactionCommandMatcher.TryGenerateCommand(
-                pattern,
-                reaction.TestInput,
-                reaction.UseRegex ? reaction.ReplaceMatch : GetDefaultReplaceMatch(),
-                out var command,
-                out var matchedText,
-                out _);
-            if (status != ReactionMatchStatus.Success)
-                return result;
-            result.Args = matchedText;
-            result.Main = FormatCommand(command).ToString();
-            return result;
+            foreach (var path in candidates)
+            {
+                try
+                {
+                    var legacy = Newtonsoft.Json.JsonConvert.DeserializeObject<Configuration>(File.ReadAllText(path));
+                    if (legacy == null)
+                        continue;
+                    ConfigurationMigrator.MigrateAndNormalize(legacy);
+                    if (legacy.Reactions.Count == 0)
+                        continue;
+                    LegacyConfigImported = true;
+                    PluginLog.Information("Imported Puppet Master settings from {Path}.", path);
+                    return legacy;
+                }
+                catch (Exception ex)
+                {
+                    LegacyUnreadable.Add(Path.GetFileName(path));
+                    PluginLog.Warning(ex, "Old Puppet Master settings in {Path} couldn't be read; trying the next file.", path);
+                }
+            }
+            return null;
         }
 
-        // True when this load brought over the old Puppet Master's settings (first start of PuppetMasterKK).
-        public static bool LegacyConfigImported { get; private set; }
+        // A config that was only ever created with defaults (nothing worth keeping over an import).
+        private static bool LooksUntouched(Configuration config)
+        {
+            if (config.Reactions.Count == 0)
+                return true;
+            if (config.Reactions.Count > 1)
+                return false;
+            var only = config.Reactions[0];
+            return !only.Enabled && !only.UseRegex && only.Name == "Reaction" &&
+                   only.TriggerPhrase == Reaction.DefaultTriggerPhrase && only.EnabledChannels.Count == 0;
+        }
 
-        // PuppetMasterKK keeps its own settings file. On first start, read the old Puppet Master's file (left
-        // untouched) so reactions carry over. Any problem just means starting fresh.
-        private static Configuration? TryLoadLegacyConfig()
+        // A save that fails at startup (a locked file) must not be mistaken for an unreadable config: keep what's in
+        // memory and let ConfigSaver try again.
+        private static void SaveOrRetryLater()
         {
             try
             {
-                var directory = PluginInterface.ConfigFile.DirectoryName;
-                if (directory == null)
-                    return null;
-                var path = Path.Combine(directory, "PuppetMaster.json");
-                if (!File.Exists(path))
-                    return null;
-                var legacy = Newtonsoft.Json.JsonConvert.DeserializeObject<Configuration>(File.ReadAllText(path));
-                if (legacy == null)
-                    return null;
-                LegacyConfigImported = true;
-                PluginLog.Information("Imported Puppet Master settings from {Path}.", path);
-                return legacy;
+                configuration?.Save();
             }
             catch (Exception ex)
             {
-                PluginLog.Warning(ex, "Could not import the old Puppet Master settings; starting fresh.");
-                return null;
+                PluginLog.Error(ex, "Couldn't save the PuppetMasterKK configuration; will retry.");
+                ConfigSaver.MarkDirty();
             }
         }
 
@@ -293,9 +274,12 @@ namespace PuppetMasterKK
             Exception? loadError = null;
             try
             {
-                var loaded = PluginInterface.GetPluginConfig() as Configuration ?? TryLoadLegacyConfig();
+                var loaded = PluginInterface.GetPluginConfig() as Configuration;
+                if (loaded == null || (!loaded.LegacyImportChecked && LooksUntouched(loaded)))
+                    loaded = TryLoadLegacyConfig() ?? loaded;
                 if (loaded != null)
                 {
+                    loaded.LegacyImportChecked = true;
                     configuration = loaded;
                     configuration.Initialize(PluginInterface);
                     var sourceVersion = configuration.Version;
@@ -304,7 +288,7 @@ namespace PuppetMasterKK
                         sourceVersion,
                         ConfigVersion.CURRENT,
                         PrepareConfigurationForUse,
-                        configuration.Save,
+                        SaveOrRetryLater,
                         backupCreated: backupPath =>
                             PluginLog.Information(
                                 "Backed up PuppetMasterKK configuration v{SourceVersion} to {BackupPath} before migrating to v{TargetVersion}.",
@@ -337,11 +321,12 @@ namespace PuppetMasterKK
                 PluginLog.Error(loadError, "PuppetMasterKK configuration could not be loaded; preserved it at {Path} and started from defaults.", preservedPath ?? "(not preserved)");
             }
 
-            configuration = new Configuration();
+            configuration = new Configuration { LegacyImportChecked = true };
             configuration.Initialize(PluginInterface);
             PrepareConfigurationForUse();
-            configuration.ReadOnlySession = loadError != null && preservedPath == null;
-            configuration.Save();
+            // Read-only only when our own file exists and couldn't be kept aside: then saving would destroy it.
+            configuration.ReadOnlySession = loadError != null && preservedPath == null && PluginInterface.ConfigFile.Exists;
+            SaveOrRetryLater();
 
             if (loadError != null)
             {
@@ -471,9 +456,6 @@ namespace PuppetMasterKK
         public static IChatGui ChatGui { get; private set; } = null!;
 
         [PluginService]
-        public static ISigScanner SigScanner { get; private set; } = null!;
-
-        [PluginService]
         public static IDataManager DataManager { get; private set; } = null!;
 
         [PluginService]
@@ -505,5 +487,8 @@ namespace PuppetMasterKK
 
         [PluginService]
         public static ITextureProvider TextureProvider { get; private set; } = null!;
+
+        [PluginService]
+        public static ICondition Condition { get; private set; } = null!;
     }
 }

@@ -52,7 +52,8 @@ namespace PuppetMasterKK
             HashSet<string> CommandBlacklist,
             SenderFilter Senders,
             Regex Pattern,
-            string Replacement);
+            string Replacement,
+            bool TemplateHasWait);
 
         private sealed record ChatEnvelope(XivChatType Type, string Message, List<ReactionSnapshot> Reactions);
         private sealed record PendingRetrigger(
@@ -225,7 +226,8 @@ namespace PuppetMasterKK
                 Service.Commands.CanonicalSet(reaction.CommandBlacklist),
                 (reaction.Senders ?? SenderFilter.AnyoneFilter()).Clone(),
                 pattern,
-                reaction.UseRegex ? reaction.ReplaceMatch : Service.GetDefaultReplaceMatch());
+                reaction.UseRegex ? reaction.ReplaceMatch : Service.GetDefaultReplaceMatch(),
+                ReactionCommandMatcher.TemplateHasWait(reaction.UseRegex ? reaction.ReplaceMatch : Service.GetDefaultReplaceMatch()));
         }
 
         private static void Track(Task task)
@@ -307,9 +309,9 @@ namespace PuppetMasterKK
 
                     if (CommandCatalog.Normalize(textCommand.Main) == CommandPolicy.WaitCommand)
                     {
-                        // Plugin-internal pause, not a game command: no allow-list entry needed, but a block entry
-                        // still turns it off.
-                        if (!reaction.CommandBlacklist.Contains(CommandPolicy.WaitCommand) &&
+                        // Plugin-internal pause, not a game command (see CommandPolicy.IsWaitAllowed).
+                        if (CommandPolicy.IsWaitAllowed(catalog, reaction.TemplateHasWait, reaction.CommandWhitelist,
+                                                        reaction.CommandBlacklist, out _) &&
                             ReactionCommandMatcher.TryParseWaitSeconds(textCommand.Args, out var seconds))
                             await Task.Delay(TimeSpan.FromSeconds(seconds), cancellation.Token);
                     }
@@ -336,10 +338,13 @@ namespace PuppetMasterKK
 
                             if (allowed)
                             {
-                                // One shared limit on everything PuppetMasterKK sends.
-                                var delay = CommandRateLimiter.Shared.Reserve(Stopwatch.GetTimestamp());
-                                if (delay > TimeSpan.Zero)
-                                    await Task.Delay(delay, cancellation.Token);
+                                // One shared limit on everything PuppetMasterKK sends. A slot is taken only when it's
+                                // free, so a run cancelled while waiting leaves nothing booked.
+                                while (!CommandRateLimiter.Shared.TryAcquire(Stopwatch.GetTimestamp()))
+                                {
+                                    var wait = CommandRateLimiter.Shared.TimeUntilFree(Stopwatch.GetTimestamp());
+                                    await Task.Delay(wait > TimeSpan.FromMilliseconds(10) ? wait : TimeSpan.FromMilliseconds(10), cancellation.Token);
+                                }
 
                                 await Service.Framework.RunOnFrameworkThread(() =>
                                 {
@@ -772,7 +777,7 @@ namespace PuppetMasterKK
         // Framework thread: the sender is resolved here, from the game's friend, FC and party lists.
         private static void EnqueueMessage(XivChatType type, SeString sender, SeString seMessage)
         {
-            var message = seMessage.ToString();
+            var message = ReactionCommandMatcher.SanitizeIncoming(seMessage.ToString());
             List<ReactionSnapshot>? snapshots = null;
             SenderInfo? senderInfo = null;
             var configuration = Service.configuration!;
