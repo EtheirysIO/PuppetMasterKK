@@ -174,6 +174,8 @@ namespace PuppetMasterKK
         //---- Version 4 Config
         // Your own chat lines never trigger reactions (stops a reaction from re-triggering itself).
         public bool IgnoreOwnMessages { get; set; } = true;
+        // Protections: off means triggers never run Lifestream's commands (teleports, world and data center travel).
+        public bool AllowLifestreamCommands { get; set; } = false;
         public EmoteReplySettings EmoteReplies { get; set; } = new();
         public FollowSettings Follow { get; set; } = new();
         // Set once the old Right Back At You settings have been looked for, so they're imported only once.

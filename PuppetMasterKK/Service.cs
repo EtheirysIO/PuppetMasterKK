@@ -174,8 +174,52 @@ namespace PuppetMasterKK
         public static ParsedTextCommand FormatCommand(string command) => ReactionCommandMatcher.FormatCommand(command);
 
         // UI-side check; must run on the framework thread (it reads the registered plugin commands).
+        // Lifestream, when it's loaded (it can move you across the world, between worlds and data centers).
+        public static bool IsLifestreamLoaded()
+        {
+            try
+            {
+                foreach (var plugin in PluginInterface.InstalledPlugins)
+                {
+                    if (plugin.IsLoaded && plugin.InternalName.Equals("Lifestream", StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                PluginLog.Debug(ex, "Couldn't read the plugin list.");
+            }
+            return false;
+        }
+
+        // One of Lifestream's commands: its usual names, or any command whose handler lives in Lifestream's code.
+        public static bool IsLifestreamCommand(string command)
+        {
+            var key = CommandCatalog.Normalize(command);
+            if (key is "/li" or "/lifestream")
+                return true;
+            if (!CommandManager.Commands.TryGetValue(key, out var info))
+                return false;
+            var owner = info.Handler?.Method.DeclaringType?.Assembly.GetName().Name;
+            return owner != null && owner.Equals("Lifestream", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Settings > Protections, checked before a trigger's own rules (framework thread).
+        public static bool IsProtected(string command, out string reason)
+        {
+            if (configuration?.AllowLifestreamCommands != true && IsLifestreamCommand(command))
+            {
+                reason = "Lifestream commands are off (Settings > General > Protections)";
+                return true;
+            }
+            reason = string.Empty;
+            return false;
+        }
+
         public static bool IsCommandAllowed(Reaction reaction, string command, out string reason)
         {
+            if (IsProtected(command, out reason))
+                return false;
             var catalog = Commands;
             var canonical = catalog.Canonicalize(command);
             if (CommandCatalog.Normalize(command) == CommandPolicy.WaitCommand)

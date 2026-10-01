@@ -324,6 +324,11 @@ namespace PuppetMasterKK
                             // commands), before a send slot is taken: blocked lines must not use up the rate limit.
                             var allowed = await Service.Framework.RunOnFrameworkThread(() =>
                             {
+                                if (Service.IsProtected(textCommand.Main, out var protectedReason))
+                                {
+                                    Service.PluginLog.Debug("{Reaction}: {Command} blocked: {Reason}", reaction.Name, textCommand.Main, protectedReason);
+                                    return false;
+                                }
                                 var kind = catalog.Classify(textCommand.Main, Service.IsPluginCommand);
                                 if (CommandPolicy.IsAllowed(
                                         canonical,

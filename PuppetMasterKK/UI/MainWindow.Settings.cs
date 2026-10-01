@@ -62,6 +62,22 @@ internal sealed partial class MainWindow
                  "over and over. Turn off only to test triggers on yourself.");
         }
 
+        var lifestream = Service.IsLifestreamLoaded();
+        using (W.Card("protections", "Protections"))
+        {
+            var allowLifestream = Config.AllowLifestreamCommands;
+            if (W.Toggle("Allow people to send Lifestream commands to you##allowLifestream", ref allowLifestream))
+            {
+                Config.AllowLifestreamCommands = allowLifestream;
+                previewDirty = true;
+                Changed();
+            }
+            ImGui.SameLine();
+            W.Chip(lifestream ? "Lifestream installed" : "Lifestream not loaded", lifestream ? Theme.Accent : Theme.Faint);
+            Hint("Lifestream can teleport you, and travel between worlds and data centers. Off: triggers never run its " +
+                 "commands (/li, /lifestream...), whatever they allow. On: they still have to be listed under a trigger's Allowed.");
+        }
+
         using (W.Card("notificationDefaults", "Notifications", "Triggers set to Default use these"))
         {
             var progress = Config.ShowReactionNotifications;
@@ -271,7 +287,8 @@ internal sealed partial class MainWindow
         using (W.Card("about", null))
         {
             // The icon as it is: drawn on nothing, so its transparent corners stay transparent.
-            var side = System.MathF.Min(Theme.S(192f), W.Avail());
+            // Big enough to see the details: the card's width, up to 360 design px.
+            var side = System.MathF.Min(Theme.S(360f), W.Avail());
             if (Service.TextureProvider.GetFromFile(IconPath).TryGetWrap(out var icon, out _) && icon != null)
             {
                 ImGui.SetCursorPosX(ImGui.GetCursorPosX() + System.MathF.Max(0f, (W.Avail() - side) * 0.5f));

@@ -1324,6 +1324,8 @@ static void RunFollowTests()
     Assert(!config.Follow.Enabled && config.Follow.FollowWords == "follow" && config.Follow.StopWords == "stop" &&
            config.Follow.Channels.SequenceEqual([13, 14, 24]) && !config.Follow.Senders.Anyone && config.Follow.StopMoves,
         "Follow mode should start off, with safe defaults");
+    Assert(!config.AllowLifestreamCommands && !DalamudJson.Load("{\"Version\": 4}").AllowLifestreamCommands,
+        "Lifestream commands should be off for new and existing configs");
     var shrunk = new Configuration();
     shrunk.Follow.Channels = [13];
     Assert(DalamudJson.Load(DalamudJson.Save(shrunk)).Follow.Channels.SequenceEqual([13]),
