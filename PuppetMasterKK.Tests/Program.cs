@@ -1126,6 +1126,32 @@ static void RunCommandPolicyTests()
         "a trigger without protections should run everything, unlisted");
     Assert(Unprotected("/sh", ["/shout"]) && !Unprotected("/follow", []),
         "without protections, the Blocked list is off too, but /follow stays Follow mode's");
+    var chatOff = new ProtectionSettings();
+    chatOff.OpenChat.Add("say");
+    chatOff.OpenRisky.Add("teleport");
+    chatOff.OpenPlugins.Add("Lifestream");
+    bool Open(ProtectionSettings p, string command, string? owner = null)
+    {
+        var kind = catalog.Classify(command, owner != null ? _ => true : null);
+        var canonical = catalog.Canonicalize(command);
+        return CommandPolicy.IsAllowed(canonical, kind, catalog.CanonicalSet([]), catalog.CanonicalSet([]), false, out _,
+            open: p.IsOpen(kind, kind == CommandKind.Plugin ? owner : catalog.GroupOf(canonical)));
+    }
+    Assert(catalog.GroupOf(catalog.Canonicalize("/s")) == "say" && catalog.GroupOf(catalog.Canonicalize("/cwl3")) == "cwls" &&
+           catalog.GroupOf(catalog.Canonicalize("/tp")) == "teleport" && catalog.Classify("/hotbar") == CommandKind.Sensitive,
+        "chat and risky commands should map to their protection groups");
+    Assert(Open(chatOff, "/s") && !Open(chatOff, "/sh") && Open(chatOff, "/tp") && !Open(chatOff, "/leave") &&
+           Open(chatOff, "/li", "Lifestream") && !Open(chatOff, "/glamour", "Glamourer"),
+        "an unticked channel, risky group or plugin should run unlisted; ticked ones still need Allowed");
+    var masterOff = new ProtectionSettings { Chat = false };
+    Assert(Open(masterOff, "/sh") && Open(masterOff, "/cwl1") && !Open(masterOff, "/tp") && !Open(masterOff, "/glamour", "Glamourer"),
+        "switching off chat protection should open every chat command, and nothing else");
+    Assert(!Open(new ProtectionSettings { Chat = false, Risky = false, Plugins = false }, "/logout") &&
+           !Open(new ProtectionSettings { Chat = false, Risky = false, Plugins = false }, "/follow"),
+        "switched-off protections never open /logout or /follow");
+    Assert(!CommandPolicy.IsAllowed(catalog.Canonicalize("/s"), CommandKind.Chat, catalog.CanonicalSet([]), catalog.CanonicalSet(["/say"]),
+            false, out _, open: true),
+        "a blocked command stays blocked even with its protection off");
     Assert(CommandPolicy.IsWaitAllowed(catalog, false, catalog.CanonicalSet([]), catalog.CanonicalSet(["/wait"]), out _, noProtections: true),
         "without protections, a sender's /wait runs too, even when blocked");
     Assert(!Allowed("/pmkk", ["/pmkk"], [], true) && !Allowed("/puppetmasterkk", ["/puppetmasterkk"], [], true),
@@ -1322,12 +1348,24 @@ static void RunFollowTests()
     Assert(!config.Follow.Enabled && config.Follow.FollowWords == "follow" && config.Follow.StopWords == "stop" &&
            config.Follow.Channels.SequenceEqual([13, 14, 24]) && !config.Follow.Senders.Anyone && config.Follow.StopMoves,
         "Follow mode should start off, with safe defaults");
-    Assert(!Reaction.CreateDefault().AllowLifestream && !Reaction.CreateDefault().NoProtections &&
-           !DalamudJson.Load("{\"Version\": 4, \"Reactions\": [{}]}").Reactions[0].AllowLifestream,
-        "triggers should start with Lifestream off and every protection on, new or loaded");
-    var trusted = new Reaction { NoProtections = true, AllowLifestream = true };
-    Assert(!PluginUiLogic.CloneReaction(trusted).NoProtections && PluginUiLogic.CloneReaction(trusted).AllowLifestream,
-        "a duplicate should keep Lifestream but never start without protections");
+    static bool FullyProtected(ProtectionSettings p) =>
+        p.Chat && p.Risky && p.Plugins && p.OpenChat.Count == 0 && p.OpenRisky.Count == 0 && p.OpenPlugins.Count == 0;
+    var loaded = DalamudJson.Load("{\"Version\": 4, \"Reactions\": [{}, {\"Protections\": null}]}");
+    ConfigurationMigrator.MigrateAndNormalize(loaded);
+    Assert(FullyProtected(Reaction.CreateDefault().Protections) && !Reaction.CreateDefault().NoProtections &&
+           FullyProtected(loaded.Reactions[0].Protections) && FullyProtected(loaded.Reactions[1].Protections) &&
+           FullyProtected(loaded.DefaultProtections),
+        "triggers should start with every protection on, new or loaded (a null one is repaired)");
+    var trusted = new Reaction { NoProtections = true };
+    trusted.Protections.OpenChat.Add("say");
+    var copy = PluginUiLogic.CloneReaction(trusted);
+    Assert(!copy.NoProtections && copy.Protections.OpenChat.SequenceEqual(["say"]) &&
+           !ReferenceEquals(copy.Protections.OpenChat, trusted.Protections.OpenChat),
+        "a duplicate should keep its own copy of the protections but never start without them");
+    var defaults = new Configuration();
+    defaults.DefaultProtections.Plugins = false;
+    Assert(!PluginUiLogic.CreateReactionFromLog(13, "hi", "Tell", defaults).Protections.Plugins,
+        "triggers made from the message log should start with the default protections");
     var shrunk = new Configuration();
     shrunk.Follow.Channels = [13];
     Assert(DalamudJson.Load(DalamudJson.Save(shrunk)).Follow.Channels.SequenceEqual([13]),

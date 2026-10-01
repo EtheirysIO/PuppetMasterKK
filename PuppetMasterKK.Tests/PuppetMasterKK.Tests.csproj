@@ -34,6 +34,7 @@
     <Compile Include="..\PuppetMasterKK\Diagnostics\ReactionVisualizerState.cs" Link="Linked\ReactionVisualizerState.cs" />
     <Compile Include="..\PuppetMasterKK\Config\ConfigurationUpgradeTransaction.cs" Link="Linked\ConfigurationUpgradeTransaction.cs" />
     <Compile Include="..\PuppetMasterKK\Chat\CommandPolicy.cs" Link="Linked\CommandPolicy.cs" />
+    <Compile Include="..\PuppetMasterKK\Chat\Protections.cs" Link="Linked\Protections.cs" />
     <Compile Include="..\PuppetMasterKK\Chat\SenderFilter.cs" Link="Linked\SenderFilter.cs" />
     <Compile Include="..\PuppetMasterKK\Follow\FollowRequest.cs" Link="Linked\FollowRequest.cs" />
     <None Include="TestConfigs\*.json" CopyToOutputDirectory="PreserveNewest" />

@@ -131,6 +131,7 @@ public static class ConfigurationMigrator
         changed |= RemoveNullEntries(configuration.EnabledChannels);
         changed |= RemoveNullEntries(configuration.CustomChannels);
         changed |= RemoveNullEntries(configuration.Reactions);
+        configuration.DefaultProtections = RepairProtections(configuration.DefaultProtections, ref changed);
         if (configuration.DefaultCommandWhitelist == null)
         {
             configuration.DefaultCommandWhitelist = [];
@@ -206,6 +207,7 @@ public static class ConfigurationMigrator
             if (reaction.CommandBlacklist == null) { reaction.CommandBlacklist = []; changed = true; }
             if (reaction.Senders == null) { reaction.Senders = SenderFilter.AnyoneFilter(); changed = true; }
             if (reaction.Senders.Named == null) { reaction.Senders.Named = []; changed = true; }
+            reaction.Protections = RepairProtections(reaction.Protections, ref changed);
 
             changed |= DeduplicateChannels(reaction.EnabledChannels);
             changed |= DeduplicateCommands(reaction.CommandWhitelist);
@@ -340,5 +342,18 @@ public static class ConfigurationMigrator
             if (reaction.EnabledChannels == null || reaction.CommandWhitelist == null || reaction.CommandBlacklist == null)
                 throw new InvalidOperationException("A migrated reaction contains a null collection.");
         }
+    }
+
+    private static ProtectionSettings RepairProtections(ProtectionSettings? protections, ref bool changed)
+    {
+        if (protections == null)
+        {
+            changed = true;
+            return new ProtectionSettings();
+        }
+        if (protections.OpenChat == null) { protections.OpenChat = []; changed = true; }
+        if (protections.OpenRisky == null) { protections.OpenRisky = []; changed = true; }
+        if (protections.OpenPlugins == null) { protections.OpenPlugins = []; changed = true; }
+        return protections;
     }
 }

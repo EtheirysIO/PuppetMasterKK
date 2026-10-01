@@ -54,7 +54,7 @@ namespace PuppetMasterKK
             Regex Pattern,
             string Replacement,
             bool TemplateHasWait,
-            bool AllowLifestream,
+            ProtectionSettings Protections,
             bool NoProtections);
 
         private sealed record ChatEnvelope(XivChatType Type, string Message, List<ReactionSnapshot> Reactions);
@@ -231,7 +231,7 @@ namespace PuppetMasterKK
                 pattern,
                 reaction.UseRegex ? reaction.ReplaceMatch : Service.GetDefaultReplaceMatch(),
                 ReactionCommandMatcher.TemplateHasWait(reaction.UseRegex ? reaction.ReplaceMatch : Service.GetDefaultReplaceMatch()),
-                reaction.AllowLifestream,
+                (reaction.Protections ?? new ProtectionSettings()).Clone(),
                 reaction.NoProtections);
         }
 
@@ -328,12 +328,6 @@ namespace PuppetMasterKK
                             // commands), before a send slot is taken: blocked lines must not use up the rate limit.
                             var allowed = await Service.Framework.RunOnFrameworkThread(() =>
                             {
-                                if (!reaction.NoProtections &&
-                                    Service.IsProtected(textCommand.Main, reaction.AllowLifestream, out var protectedReason))
-                                {
-                                    Service.PluginLog.Debug("{Reaction}: {Command} blocked: {Reason}", reaction.Name, textCommand.Main, protectedReason);
-                                    return false;
-                                }
                                 var kind = catalog.Classify(textCommand.Main, Service.IsPluginCommand);
                                 if (CommandPolicy.IsAllowed(
                                         canonical,
@@ -342,7 +336,8 @@ namespace PuppetMasterKK
                                         reaction.CommandBlacklist,
                                         reaction.AllowAllCommands,
                                         out var permissionReason,
-                                        reaction.NoProtections))
+                                        reaction.NoProtections,
+                                        Service.IsOpen(reaction.Protections, kind, canonical, textCommand.Main)))
                                     return true;
                                 Service.PluginLog.Debug("{Reaction}: {Command} blocked: {Reason}", reaction.Name, textCommand.Main, permissionReason);
                                 return false;

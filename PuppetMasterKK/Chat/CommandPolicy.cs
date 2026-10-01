@@ -26,25 +26,6 @@ internal enum CommandKind
 // check time because plugins come and go.
 internal sealed class CommandCatalog
 {
-    // Commands that post text other players can read. "Any command except those blocked" never covers these: a stranger
-    // could otherwise make you say anything in shout, tell or FC chat.
-    private static readonly string[] ChatCommandForms =
-    [
-        "/say", "/s", "/yell", "/y", "/shout", "/sh", "/tell", "/t", "/reply", "/r",
-        "/party", "/p", "/alliance", "/a", "/freecompany", "/fc", "/novice", "/beginner", "/n", "/b",
-        "/emote", "/em", "/pvpteam", "/pt",
-        "/linkshell1", "/linkshell2", "/linkshell3", "/linkshell4", "/linkshell5", "/linkshell6", "/linkshell7", "/linkshell8",
-        "/l1", "/l2", "/l3", "/l4", "/l5", "/l6", "/l7", "/l8",
-        "/cwlinkshell1", "/cwlinkshell2", "/cwlinkshell3", "/cwlinkshell4", "/cwlinkshell5", "/cwlinkshell6", "/cwlinkshell7", "/cwlinkshell8",
-        "/cwl1", "/cwl2", "/cwl3", "/cwl4", "/cwl5", "/cwl6", "/cwl7", "/cwl8",
-    ];
-
-    private static readonly string[] SensitiveCommandForms =
-    [
-        "/teleport", "/tp", "/return", "/partycmd", "/pcmd", "/leave", "/gearset", "/gs", "/blacklist", "/blist",
-        "/friendlist", "/flist", "/trade", "/invite", "/kick",
-    ];
-
     // English names of the commands that never run. The catalog maps them to the client's own names (the game
     // knows each command by its English name as well), so the block holds on every client language.
     private static readonly string[] AlwaysBlockedForms = ["/logout", "/shutdown", "/puppetmaster", "/puppetmasterkk", "/pmkk"];
@@ -56,6 +37,8 @@ internal sealed class CommandCatalog
     private readonly HashSet<string> chat = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> sensitive = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> blocked = new(StringComparer.OrdinalIgnoreCase);
+    // Chat and risky commands: which protection group each belongs to (see ProtectionGroups).
+    private readonly Dictionary<string, string> groups = new(StringComparer.OrdinalIgnoreCase);
     private string follow = FollowCommand;
 
     public static CommandCatalog Empty { get; } = new([], []);
@@ -72,13 +55,35 @@ internal sealed class CommandCatalog
             if (forms.Length > 0)
                 emotes.Add(Canonicalize(forms[0]));
         }
-        foreach (var form in ChatCommandForms)
-            chat.Add(Canonicalize(form));
+        foreach (var group in ProtectionGroups.Chat)
+        {
+            foreach (var form in group.Forms)
+            {
+                var main = Canonicalize(form);
+                chat.Add(main);
+                groups.TryAdd(main, group.Key);
+            }
+        }
         foreach (var form in AlwaysBlockedForms)
             blocked.Add(Canonicalize(form));
         follow = Canonicalize(FollowCommand);
-        foreach (var form in SensitiveCommandForms)
-            sensitive.Add(Canonicalize(form));
+        foreach (var group in ProtectionGroups.Risky)
+        {
+            foreach (var form in group.Forms)
+            {
+                var main = Canonicalize(form);
+                if (chat.Contains(main))
+                    continue;
+                sensitive.Add(main);
+                groups.TryAdd(main, group.Key);
+            }
+        }
+    }
+
+    // The chat or risky protection group of a canonical command, or null.
+    public string? GroupOf(string canonicalCommand)
+    {
+        return groups.TryGetValue(canonicalCommand, out var group) ? group : null;
     }
 
     // canonicalCommand must come from Canonicalize.
@@ -172,7 +177,8 @@ internal static class CommandPolicy
         IReadOnlySet<string> blacklist,
         bool allowAllGameCommands,
         out string reason,
-        bool noProtections = false)
+        bool noProtections = false,
+        bool open = false)
     {
         if (kind == CommandKind.FollowOnly || canonicalCommand == CommandCatalog.FollowCommand)
         {
@@ -203,6 +209,12 @@ internal static class CommandPolicy
         if (kind == CommandKind.Emote)
         {
             reason = "emotes are allowed";
+            return true;
+        }
+        // Its protection is switched off for this trigger (chat channel, risky group or plugin).
+        if (open && kind is CommandKind.Chat or CommandKind.Sensitive or CommandKind.Plugin)
+        {
+            reason = "its protection is off";
             return true;
         }
         if (allowAllGameCommands && kind == CommandKind.Game)

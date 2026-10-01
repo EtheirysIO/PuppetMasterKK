@@ -134,9 +134,13 @@ Each trigger's **Protections** card decides how much control it gets:
 1. Commands under **Blocked** never run.
 2. Emotes run unless they're blocked.
 3. Other commands must be under **Allowed**, unless **Any game command** is selected.
-4. Chat commands (say, shout, tell, party, FC, linkshells, `/em`…), other plugins' commands, and game commands with real consequences (teleporting, `/return`, party commands such as leaving or kicking, gear sets, the blacklist and friend list, trading, inviting) only run when listed under **Allowed** (shown as **Also allowed** with **Any game command**).
-5. **Allow people to send Lifestream commands to you** is in the same card. Off (the default), Lifestream's commands (`/li`, `/lifestream`…) never run; on, they still have to be listed under **Allowed**.
-6. `/logout`, `/shutdown`, `/follow` (following is what [Follow mode](#follow-mode) is for), `/pmkk` (and `/puppetmasterkk`, and the old `/puppetmaster`) and Dalamud's `/xl…` commands never run.
+4. Protected commands only run when listed under **Allowed** (shown as **Also allowed** with **Any game command**). Three switches in the card decide what's protected, and each has ticks for its parts:
+   - **Protect chat commands**: Say, Yell, Shout, Tell, Party, Alliance, Free Company, Linkshells, CWLS, Novice Network, PvP Team and emote text (`/em`).
+   - **Protect risky game commands**: teleport and return, party commands (leave, kick, invite), gear sets and glamour plates, trading, the friend list and blacklist, and hotbars.
+   - **Protect plugin commands**: every loaded plugin that has commands. The ones people could cause trouble with (Lifestream, Glamourer, Penumbra, Customize+, Dropbox, vnavmesh and others) are listed first, with the reason; the rest are under **Show other plugins**.
+
+   Untick a part and its commands run without being listed. Switch a whole group off and all of its commands do. Everything starts protected, and **Settings → New triggers** sets what new triggers start with.
+5. `/logout`, `/shutdown`, `/follow` (following is what [Follow mode](#follow-mode) is for), `/pmkk` (and `/puppetmasterkk`, and the old `/puppetmaster`) and Dalamud's `/xl…` commands never run.
 
 **Turn off all protections** (in **Protections**, after two confirmations) is for a trigger you trust completely: it then runs every command it's sent, unlisted, including the ones above. Its **Allowed** and **Blocked** lists are switched off too (they're kept for when you turn protections back on). Only `/follow` stays blocked, and the sender filter and the send limit still apply. Turning it back on is one click; a duplicated trigger always starts with protections on.
 

@@ -90,6 +90,7 @@ internal sealed partial class MainWindow
             commandBlacklist: Config.DefaultCommandBlacklist,
             allowAllCommands: Config.DefaultAllowAllCommands,
             motionOnly: Config.DefaultMotionOnly,
+            protections: Config.DefaultProtections,
             enabledChannels: Config.DefaultEnabledChannels));
         Select(Config.Reactions.Count - 1);
         page = Page.Reactions;
@@ -449,7 +450,7 @@ internal sealed partial class MainWindow
             RulesChanged(reaction);
 
         Gap(2f);
-        Hint("Emotes always run unless you block them. Chat commands (/say, /shout, /tell, /party, /fc…), other plugins' commands, and commands like teleporting, leaving the party or changing gear only run if you add them to the Allowed list. /logout, /shutdown, /follow (use Follow mode instead), /pmkk and /xl commands never run.");
+        Hint("Emotes always run unless you block them. /logout, /shutdown, /follow (use Follow mode instead), /pmkk and /xl commands never run.");
     }
 
     private void DrawNoProtectionsSecondConfirm()
@@ -491,19 +492,11 @@ internal sealed partial class MainWindow
                 return;
             }
 
-            DrawCommandLists(reaction);
+            if (DrawProtectionGroups("trigger", reaction.Protections))
+                RulesChanged(reaction);
 
             Gap();
-            var lifestream = Service.IsLifestreamLoaded();
-            var allowLifestream = reaction.AllowLifestream;
-            if (W.Toggle("Allow people to send Lifestream commands to you##allowLifestream", ref allowLifestream))
-            {
-                reaction.AllowLifestream = allowLifestream;
-                RulesChanged(reaction);
-            }
-            ImGui.SameLine();
-            W.Chip(lifestream ? "Lifestream detected" : "Lifestream not detected", lifestream ? Theme.Accent : Theme.Faint);
-            Hint("Lifestream can teleport you and move you to other worlds and data centers. When this is off, this trigger never runs Lifestream commands (/li, /lifestream). When it's on, each one still has to be added to the Allowed list.");
+            DrawCommandLists(reaction);
 
             Gap();
             if (W.DangerButton("Turn off all protections...##protectionsOff"))

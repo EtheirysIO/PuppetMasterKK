@@ -173,53 +173,65 @@ namespace PuppetMasterKK
 
         public static ParsedTextCommand FormatCommand(string command) => ReactionCommandMatcher.FormatCommand(command);
 
-        // UI-side check; must run on the framework thread (it reads the registered plugin commands).
-        // Lifestream, when it's loaded (it can move you across the world, between worlds and data centers).
-        public static bool IsLifestreamLoaded()
+        // The plugin that registered a command (its assembly name, which is the plugin's internal name), or null.
+        // Framework thread: it reads the registered commands.
+        public static string? PluginOwner(string command)
         {
+            if (!CommandManager.Commands.TryGetValue(CommandCatalog.Normalize(command), out var info))
+                return null;
+            return info.Handler?.Method.DeclaringType?.Assembly.GetName().Name;
+        }
+
+        // Whether a command runs without being listed, because this trigger switched its protection off.
+        public static bool IsOpen(ProtectionSettings protections, CommandKind kind, string canonical, string command)
+        {
+            var group = kind == CommandKind.Plugin ? PluginOwner(command) : Commands.GroupOf(canonical);
+            return protections.IsOpen(kind, group);
+        }
+
+        // Loaded plugins that registered commands, risky ones first (framework thread). Cached for a second: the
+        // Protections card asks every frame.
+        private static List<(string InternalName, string Name, string? Risk)> commandPlugins = [];
+        private static long commandPluginsAt;
+
+        public static IReadOnlyList<(string InternalName, string Name, string? Risk)> CommandPlugins()
+        {
+            var now = Environment.TickCount64;
+            if (now - commandPluginsAt < 1000 && commandPluginsAt != 0)
+                return commandPlugins;
+            commandPluginsAt = now;
+            var owners = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             try
             {
+                foreach (var info in CommandManager.Commands.Values)
+                {
+                    var owner = info.Handler?.Method.DeclaringType?.Assembly.GetName().Name;
+                    if (owner != null)
+                        owners.Add(owner);
+                }
+                var list = new List<(string InternalName, string Name, string? Risk)>();
                 foreach (var plugin in PluginInterface.InstalledPlugins)
                 {
-                    if (plugin.IsLoaded && plugin.InternalName.Equals("Lifestream", StringComparison.OrdinalIgnoreCase))
-                        return true;
+                    if (!plugin.IsLoaded || !owners.Contains(plugin.InternalName) ||
+                        plugin.InternalName.Equals(PluginInterface.InternalName, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    ProtectionGroups.RiskyPlugins.TryGetValue(plugin.InternalName, out var risk);
+                    list.Add((plugin.InternalName, plugin.Name, risk));
                 }
+                list.Sort((a, b) => a.Risk == null != (b.Risk == null)
+                    ? (a.Risk == null ? 1 : -1)
+                    : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+                commandPlugins = list;
             }
             catch (Exception ex)
             {
                 PluginLog.Debug(ex, "Couldn't read the plugin list.");
             }
-            return false;
-        }
-
-        // One of Lifestream's commands: its usual names, or any command whose handler lives in Lifestream's code.
-        public static bool IsLifestreamCommand(string command)
-        {
-            var key = CommandCatalog.Normalize(command);
-            if (key is "/li" or "/lifestream")
-                return true;
-            if (!CommandManager.Commands.TryGetValue(key, out var info))
-                return false;
-            var owner = info.Handler?.Method.DeclaringType?.Assembly.GetName().Name;
-            return owner != null && owner.Equals("Lifestream", StringComparison.OrdinalIgnoreCase);
-        }
-
-        // A trigger's protections beyond the command rules, checked first (framework thread).
-        public static bool IsProtected(string command, bool allowLifestream, out string reason)
-        {
-            if (!allowLifestream && IsLifestreamCommand(command))
-            {
-                reason = "Lifestream commands are off for this trigger (Protections)";
-                return true;
-            }
-            reason = string.Empty;
-            return false;
+            return commandPlugins;
         }
 
         public static bool IsCommandAllowed(Reaction reaction, string command, out string reason)
         {
-            if (!reaction.NoProtections && IsProtected(command, reaction.AllowLifestream, out reason))
-                return false;
             var catalog = Commands;
             var canonical = catalog.Canonicalize(command);
             if (CommandCatalog.Normalize(command) == CommandPolicy.WaitCommand)
@@ -233,14 +245,16 @@ namespace PuppetMasterKK
                     out reason,
                     reaction.NoProtections);
             }
+            var kind = catalog.Classify(command, IsPluginCommand);
             return CommandPolicy.IsAllowed(
                 canonical,
-                catalog.Classify(command, IsPluginCommand),
+                kind,
                 catalog.CanonicalSet(reaction.CommandWhitelist),
                 catalog.CanonicalSet(reaction.CommandBlacklist),
                 reaction.AllowAllCommands,
                 out reason,
-                reaction.NoProtections);
+                reaction.NoProtections,
+                IsOpen(reaction.Protections, kind, canonical, command));
         }
 
         // True when this load brought over the old Puppet Master's settings.
@@ -430,6 +444,7 @@ namespace PuppetMasterKK
                     commandBlacklist: currentConfiguration.DefaultCommandBlacklist,
                     allowAllCommands: currentConfiguration.DefaultAllowAllCommands,
                     motionOnly: currentConfiguration.DefaultMotionOnly,
+                    protections: currentConfiguration.DefaultProtections,
                     enabledChannels: currentConfiguration.DefaultEnabledChannels));
             }
 

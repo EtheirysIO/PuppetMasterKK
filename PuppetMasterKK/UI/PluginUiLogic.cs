@@ -71,6 +71,7 @@ internal static class PluginUiLogic
                 commandBlacklist: configuration.DefaultCommandBlacklist,
                 allowAllCommands: configuration.DefaultAllowAllCommands,
                 motionOnly: configuration.DefaultMotionOnly,
+                protections: configuration.DefaultProtections,
                 enabledChannels: configuration.DefaultEnabledChannels));
         }
 
@@ -220,7 +221,7 @@ internal static class PluginUiLogic
             CommandWhitelist = new List<string>(source.CommandWhitelist),
             CommandBlacklist = new List<string>(source.CommandBlacklist),
             Senders = (source.Senders ?? SenderFilter.AnyoneFilter()).Clone(),
-            AllowLifestream = source.AllowLifestream,
+            Protections = (source.Protections ?? new ProtectionSettings()).Clone(),
             // A copy never starts without protections: that takes its own two confirmations.
             NoProtections = false,
         };
@@ -248,7 +249,8 @@ internal static class PluginUiLogic
             configuration.DefaultCommandBlacklist,
             configuration.DefaultAllowAllCommands,
             configuration.DefaultMotionOnly,
-            configuration.DefaultEnabledChannels);
+            configuration.DefaultEnabledChannels,
+            configuration.DefaultProtections);
         reaction.EnabledChannels.Clear();
         reaction.UseRegex = true;
         reaction.CustomPhrase = $"^{Regex.Escape(triggerText)}$";

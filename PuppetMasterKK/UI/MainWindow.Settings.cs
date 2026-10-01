@@ -104,6 +104,9 @@ internal sealed partial class MainWindow
 
         using (W.Card("defaultProtections", "Protections"))
         {
+            if (DrawProtectionGroups("defaults", Config.DefaultProtections))
+                Changed();
+            Gap();
             Label("Which commands can run?");
             var mode = Config.DefaultAllowAllCommands ? 1 : 0;
             if (W.Segmented("##defaultCommandMode", CommandModes, ref mode, W.SegmentedWidth(CommandModes)))
