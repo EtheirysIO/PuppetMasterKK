@@ -116,7 +116,6 @@ internal static class FollowParser
 
     private static string CleanTarget(string target)
     {
-        target = target.Trim().TrimEnd('.', '!', '?', '~', ',').Trim();
         foreach (var self in SelfWords)
         {
             if (target.Equals(self, StringComparison.OrdinalIgnoreCase))

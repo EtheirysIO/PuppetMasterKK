@@ -7,7 +7,7 @@ namespace PuppetMasterKK;
 internal enum VisualizerRunStatus { Running, Completed, Cancelled, Disabled }
 
 internal sealed record VisualizerRunSnapshot(long Id, long ReactionId, string ReactionName, string Command,
-    int Lane, VisualizerRunStatus Status, DateTime StartedAt, DateTime? FinishedAt);
+    VisualizerRunStatus Status, DateTime StartedAt, DateTime? FinishedAt);
 internal sealed record VisualizerQueueSnapshot(long Id, long ReactionId, string ReactionName, string Command, DateTime QueuedAt);
 internal sealed record ReactionVisualizerSnapshot(VisualizerRunSnapshot[] Active, VisualizerQueueSnapshot[] Queued,
     VisualizerRunSnapshot[] Recent);
@@ -15,7 +15,6 @@ internal sealed record ReactionVisualizerSnapshot(VisualizerRunSnapshot[] Active
 /// <summary>A one-way runtime projection. It owns no Reaction references and exposes immutable snapshots only.</summary>
 internal static class ReactionVisualizerState
 {
-    private const int LaneCount = 4;
     private const int RecentCapacity = 24;
     private static readonly object Sync = new();
     private static readonly List<VisualizerRunSnapshot> Active = [];
@@ -33,9 +32,7 @@ internal static class ReactionVisualizerState
         lock (Sync)
         {
             var id = ++nextId;
-            var occupied = Active.Where(item => item.Lane >= 0).Select(item => item.Lane).ToHashSet();
-            var lane = Enumerable.Range(0, LaneCount).FirstOrDefault(index => !occupied.Contains(index), -1);
-            Active.Add(new(id, reactionId, DisplayName(reactionName), command, lane,
+            Active.Add(new(id, reactionId, DisplayName(reactionName), command,
                 VisualizerRunStatus.Running, DateTime.Now, null));
             return id;
         }
@@ -55,7 +52,6 @@ internal static class ReactionVisualizerState
             Active.RemoveAt(index);
             Recent.Insert(0, completed);
             if (Recent.Count > RecentCapacity) Recent.RemoveRange(RecentCapacity, Recent.Count - RecentCapacity);
-            RebalanceLanes();
         }
     }
 
@@ -96,18 +92,6 @@ internal static class ReactionVisualizerState
         if (!cancelled)
             return VisualizerRunStatus.Completed;
         return reactionEnabled ? VisualizerRunStatus.Cancelled : VisualizerRunStatus.Disabled;
-    }
-
-    private static void RebalanceLanes()
-    {
-        var occupied = Active.Where(item => item.Lane >= 0).Select(item => item.Lane).ToHashSet();
-        for (var lane = 0; lane < LaneCount; lane++)
-        {
-            if (occupied.Contains(lane)) continue;
-            var overflow = Active.FindIndex(item => item.Lane < 0);
-            if (overflow < 0) return;
-            Active[overflow] = Active[overflow] with { Lane = lane };
-        }
     }
 
     private static string DisplayName(string name) => string.IsNullOrWhiteSpace(name) ? "Unnamed trigger" : name;

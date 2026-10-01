@@ -12,7 +12,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.Loader;
 using System.Text.RegularExpressions;
-using System.Threading;
 
 namespace PuppetMasterKK
 {
@@ -90,7 +89,7 @@ namespace PuppetMasterKK
             return CommandManager.Commands.ContainsKey(command);
         }
 
-        public static void SetEnabledAll(bool enabled = true)
+        public static void SetEnabledAll(bool enabled)
         {
             for (var i = 0; i < configuration?.Reactions.Count; i++)
             {
@@ -103,12 +102,12 @@ namespace PuppetMasterKK
                 ChatGui.Print($"[PuppetMasterKK] {(enabled ? "Turned on" : "Turned off")} {Plural(configuration.Reactions.Count, "trigger")}.");
         }
 
-        public static void SetEnabled(string name, bool enabled = true, StringComparison sc = StringComparison.OrdinalIgnoreCase)
+        public static void SetEnabled(string name, bool enabled)
         {
             var found = 0;
             for (var i = 0; i < configuration?.Reactions.Count; i++)
             {
-                if (configuration.Reactions[i].Name.Equals(name, sc))
+                if (configuration.Reactions[i].Name.Equals(name, StringComparison.OrdinalIgnoreCase))
                 {
                     configuration.Reactions[i].Enabled = enabled;
                     if (!enabled)

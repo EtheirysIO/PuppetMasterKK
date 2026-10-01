@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
@@ -130,7 +129,7 @@ internal sealed partial class MainWindow
             for (var i = 0; i < channels.Count; i++)
             {
                 var channel = channels[i];
-                if (IsOfficialChannel(channel.ChatType) && channel.ChatType >= 0)
+                if (IsOfficialChannel(channel.ChatType))
                     continue; // an official channel in the old custom list: it's in the picker already
                 shown++;
                 ImGui.PushID(i);

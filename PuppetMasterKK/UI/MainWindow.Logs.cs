@@ -1,7 +1,6 @@
 using System;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
-using Dalamud.Game.Text;
 using Dalamud.Interface;
 using Dalamud.Interface.ImGuiNotification;
 using phys1ksUI;
@@ -190,8 +189,6 @@ internal sealed partial class MainWindow
 
     private static void AddCustomChannel(int chatTypeId)
     {
-        if (IsOfficialChannel(chatTypeId) || IsConfiguredCustomChannel(chatTypeId))
-            return;
         Config.CustomChannels.Add(new ChannelSetting { ChatType = chatTypeId, Name = $"Custom {chatTypeId}" });
         Changed();
     }

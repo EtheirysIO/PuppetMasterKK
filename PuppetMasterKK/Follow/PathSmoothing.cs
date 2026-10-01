@@ -13,10 +13,12 @@ internal static class PathSmoothing
     public const float CornerCut = 1.5f;
     // Points per rounded corner.
     private const int CornerSteps = 4;
+    // Waypoints this close to us count as reached (dropped from the start of a new path).
+    private const float Near = 1.5f;
 
     // Drops the waypoints at the start of a new path that are already behind us (we kept running while it was being
     // worked out), so swapping the path in never makes the character turn back.
-    public static List<Vector3> TrimBehind(IReadOnlyList<Vector3> path, Vector3 position, Vector3 heading, float near = 1.5f)
+    public static List<Vector3> TrimBehind(IReadOnlyList<Vector3> path, Vector3 position, Vector3 heading)
     {
         var start = 0;
         var flatHeading = new Vector2(heading.X, heading.Z);
@@ -27,7 +29,7 @@ internal static class PathSmoothing
             var offset = path[start] - position;
             var flat = new Vector2(offset.X, offset.Z);
             var behind = hasHeading && Vector2.Dot(flat, flatHeading) < 0f;
-            if (flat.Length() > near && !behind)
+            if (flat.Length() > Near && !behind)
                 break;
             start++;
         }

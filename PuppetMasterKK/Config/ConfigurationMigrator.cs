@@ -35,7 +35,6 @@ public static class ConfigurationMigrator
         }
 
         changed |= NormalizeLegacyCommandRules(configuration);
-        Validate(configuration);
         return changed;
     }
 
@@ -390,22 +389,6 @@ public static class ConfigurationMigrator
         where T : class
     {
         return items.RemoveAll(static item => item == null) > 0;
-    }
-
-    private static void Validate(Configuration configuration)
-    {
-        if (configuration.Version != ConfigVersion.CURRENT)
-            throw new InvalidOperationException("Configuration migration did not reach the current version.");
-        if (configuration.Reactions == null || configuration.EnabledChannels == null || configuration.CustomChannels == null)
-            throw new InvalidOperationException("Configuration collections cannot be null.");
-        if (configuration.DefaultCommandWhitelist == null || configuration.DefaultCommandBlacklist == null ||
-            configuration.DefaultEnabledChannels == null)
-            throw new InvalidOperationException("Configuration command defaults cannot be null.");
-        foreach (var reaction in configuration.Reactions)
-        {
-            if (reaction.EnabledChannels == null || reaction.CommandWhitelist == null || reaction.CommandBlacklist == null)
-                throw new InvalidOperationException("A migrated reaction contains a null collection.");
-        }
     }
 
     private static ProtectionSettings RepairProtections(ProtectionSettings? protections, ref bool changed)

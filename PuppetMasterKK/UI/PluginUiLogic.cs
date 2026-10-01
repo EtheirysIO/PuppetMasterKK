@@ -98,11 +98,6 @@ internal static class PluginUiLogic
         return ReactionUiStatus.Ready;
     }
 
-    public static void SetRegexMode(Reaction reaction, bool useRegex)
-    {
-        reaction.UseRegex = useRegex;
-    }
-
     public static void EnsureRegexRestoreTrigger(Reaction reaction)
     {
         if (string.IsNullOrWhiteSpace(reaction.TriggerPhrase))

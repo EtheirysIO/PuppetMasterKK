@@ -472,10 +472,10 @@ static void RunPluginUiLogicTests()
            !PluginUiLogic.CreateReactionFromLog(24, "hello", "Free Company", new Configuration()).Senders.Anyone,
         "a reaction made from a system line must allow anyone (no player sends it); one from player chat keeps the safe default");
 
-    PluginUiLogic.SetRegexMode(reaction, true);
+    reaction.UseRegex = true;
     Assert(reaction.UseRegex && ReactionCommandMatcher.SelectPattern(reaction) == null,
         "regex toggle should select only the empty custom pattern without throwing");
-    PluginUiLogic.SetRegexMode(reaction, false);
+    reaction.UseRegex = false;
     Assert(ReactionCommandMatcher.SelectPattern(reaction) == reaction.Rx,
         "switching back should restore the simple preview pattern");
     Assert(PluginUiLogic.ClampCooldown(-1) == 0 && PluginUiLogic.ClampCooldown(90000) == 86400,

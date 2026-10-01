@@ -77,7 +77,7 @@ internal sealed partial class MainWindow
 
     private void DrawReactionsPage()
     {
-        if (Config.Reactions.Count == 0 || SelectedReaction == null)
+        if (SelectedReaction == null)
             Select(PluginUiLogic.EnsureReactionSelection(Config, selected));
         if (SelectedReaction is { } reaction)
             DrawReactionEditor(reaction);
@@ -279,7 +279,7 @@ internal sealed partial class MainWindow
             var mode = reaction.UseRegex ? 1 : 0;
             if (W.Segmented("##triggerMode", TriggerModes, ref mode, W.SegmentedWidth(TriggerModes)))
             {
-                PluginUiLogic.SetRegexMode(reaction, mode == 1);
+                reaction.UseRegex = mode == 1;
                 TriggerChanged(reaction);
             }
             Gap();

@@ -16,10 +16,9 @@ using Dalamud.Interface.ImGuiNotification;
 
 namespace PuppetMasterKK
 {
-    public partial class ChatHandler
+    public class ChatHandler
     {
         private static readonly ReactionExecutionGate ExecutionGate = new();
-        private static readonly ConcurrentDictionary<long, Task> ActiveTasks = new();
         private static readonly ConcurrentDictionary<Reaction, CancellationTokenSource> ActiveReactionCancellations =
             new(ReferenceEqualityComparer.Instance);
         private static readonly ConcurrentDictionary<IActiveNotification, byte> ActiveNotifications = new();
@@ -28,7 +27,6 @@ namespace PuppetMasterKK
         private static ConditionalWeakTable<Reaction, ReactionControlState> reactionControls = new();
         private static ConditionalWeakTable<Reaction, BoundedRetriggerScheduler<PendingRetrigger>> retriggerQueues = new();
         private static CancellationTokenSource pluginLifetime = new();
-        private static long nextTaskId;
         private static long nextVisualizerReactionId;
         private static long droppedMessageCount;
         private static long droppedRetriggerCount;
@@ -206,8 +204,6 @@ namespace PuppetMasterKK
             bool showNotifications,
             bool showSuppressionNotifications)
         {
-            if (!reaction.Enabled)
-                return null;
             var pattern = ReactionCommandMatcher.SelectPattern(reaction);
             if (pattern == null)
                 return null;
@@ -234,14 +230,12 @@ namespace PuppetMasterKK
                 reaction.NoProtections);
         }
 
+        // Fire-and-forget work: a failure is logged instead of going unobserved.
         private static void Track(Task task)
         {
-            var id = Interlocked.Increment(ref nextTaskId);
-            ActiveTasks[id] = task;
             _ = task.ContinueWith(
                 completed =>
                 {
-                    ActiveTasks.TryRemove(id, out _);
                     if (completed.Exception != null)
                         Service.PluginLog.Error(completed.Exception, "PuppetMasterKK background task failed.");
                 },
