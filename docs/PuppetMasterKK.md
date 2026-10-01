@@ -8,7 +8,7 @@ PuppetMasterKK lets trusted chat messages boss your character around—wave, pos
 ## Install and open
 
 1. Open Dalamud Settings and go to **Experimental**.
-2. Add the custom plugin repository from the [README](../README.md).
+2. Add `https://repo.etheirys.io` as a custom plugin repository and save.
 3. Install **PuppetMasterKK** from the Plugin Installer.
 4. Run `/pmkk` (or `/puppetmasterkk`), or open the plugin from the Plugin Installer.
 
@@ -126,7 +126,7 @@ Each trigger chooses who can set it off:
 
 New triggers start with Friends, Free Company and Party. Triggers from before this option existed were set to **Anyone**, so they keep working as they did; review them. A trigger that **Anyone** can trigger in a public channel (Say, Yell, Shout, Tell, Party, Alliance or a cross-world linkshell) shows a warning, because strangers can trigger it.
 
-Your own chat messages never trigger anything (**Settings → General → Ignore my own messages**).
+Your own chat messages don't trigger anything, unless you turn off **Settings → General → Ignore my own messages**.
 
 ## Command rules
 
