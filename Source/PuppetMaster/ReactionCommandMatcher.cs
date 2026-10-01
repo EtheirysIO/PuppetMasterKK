@@ -25,7 +25,21 @@ internal static class ReactionCommandMatcher
         out string command,
         out string? error)
     {
+        return TryGenerateCommand(pattern, message, replacement, out command, out _, out error);
+    }
+
+    // The one matching path: live runs and the editor preview both go through here, so the preview can't disagree
+    // with what actually runs.
+    public static ReactionMatchStatus TryGenerateCommand(
+        Regex? pattern,
+        string message,
+        string replacement,
+        out string command,
+        out string matchedText,
+        out string? error)
+    {
         command = string.Empty;
+        matchedText = string.Empty;
         error = null;
         if (pattern == null)
             return ReactionMatchStatus.NoMatch;
@@ -34,6 +48,7 @@ internal static class ReactionCommandMatcher
             var match = pattern.Match(message);
             if (!match.Success)
                 return ReactionMatchStatus.NoMatch;
+            matchedText = match.Value;
             command = match.Result(replacement);
             return ReactionMatchStatus.Success;
         }
@@ -46,5 +61,16 @@ internal static class ReactionCommandMatcher
             error = exception.Message;
             return ReactionMatchStatus.InvalidReplacement;
         }
+    }
+
+    // "/wait <seconds>": invariant culture (so "1.5" means the same on a German client), finite only, 0-60 s.
+    public static bool TryParseWaitSeconds(string args, out double seconds)
+    {
+        seconds = 0;
+        if (!double.TryParse(args, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed) ||
+            !double.IsFinite(parsed))
+            return false;
+        seconds = Math.Clamp(parsed, 0.0, 60.0);
+        return true;
     }
 }

@@ -1,5 +1,6 @@
 using Dalamud.Configuration;
 using Dalamud.Plugin;
+using Newtonsoft.Json;
 
 using System;
 using System.Collections.Generic;
@@ -50,7 +51,7 @@ namespace PuppetMaster
         public ReactionExecutionPolicy ExecutionPolicy { get; set; } = ReactionExecutionPolicy.QueueEveryTrigger;
         public ReactionNotificationSetting ProgressNotifications { get; set; } = ReactionNotificationSetting.Inherit;
         public ReactionNotificationSetting SuppressedNotifications { get; set; } = ReactionNotificationSetting.Inherit;
-        // Legacy v1 field. Retained for config compatibility; command execution no longer uses it.
+        // "Any command except those blocked" mode. Still live: command execution honors it.
         public bool AllowAllCommands { get; set; } = false;
         public bool UseRegex { get; set; } = false;
         public string CustomPhrase { get; set; } = string.Empty;
@@ -59,7 +60,11 @@ namespace PuppetMaster
         public List<int> EnabledChannels { get; set; } = [];
         public List<string> CommandWhitelist { get; set; } = [];
         public List<string> CommandBlacklist { get; set; } = [];
+        // Runtime only. Compiled regexes must never be persisted: Newtonsoft would rebuild them without the match
+        // timeout, and a stale saved pattern would shadow later edits to TriggerPhrase/CustomPhrase.
+        [JsonIgnore]
         public Regex? Rx;
+        [JsonIgnore]
         public Regex? CustomRx;
 
         public static Reaction CreateDefault(
@@ -109,6 +114,9 @@ namespace PuppetMaster
         public bool ShowReactionNotifications { get; set; } = true;
         public bool ShowSuppressedReactionNotifications { get; set; } = false;
         public List<string> DefaultCommandWhitelist { get; set; } = [];
+        // Replace, not merge: Newtonsoft otherwise appends the saved items to this non-empty default, so a user could
+        // never remove a default entry or empty the list.
+        [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
         public List<string> DefaultCommandBlacklist { get; set; } = ["/sit", "/groundsit", "/lounge"];
         public bool DefaultAllowAllCommands { get; set; } = false;
         public bool DefaultMotionOnly { get; set; } = true;

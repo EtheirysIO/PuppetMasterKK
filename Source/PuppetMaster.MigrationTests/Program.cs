@@ -1,12 +1,5 @@
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using PuppetMaster;
-
-var options = new JsonSerializerOptions
-{
-    IncludeFields = true,
-    PropertyNameCaseInsensitive = true,
-};
 
 Run("PuppetMaster_v0.json", configuration =>
 {
@@ -123,7 +116,9 @@ RunDebugLogBufferTests();
 RunRetriggerQueueTests();
 RunRetriggerSchedulerTests();
 RunReactionVisualizerStateTests();
-RunConfigurationUpgradeTransactionTests(options);
+RunConfigurationUpgradeTransactionTests();
+RunDalamudRoundTripTests();
+RunWaitParsingTests();
 
 Console.WriteLine("All PuppetMaster configuration migration tests passed.");
 return;
@@ -131,14 +126,18 @@ return;
 void Run(string fixtureName, Action<Configuration> assertions)
 {
     var path = Path.Combine(AppContext.BaseDirectory, "TestConfigs", fixtureName);
-    var configuration = JsonSerializer.Deserialize<Configuration>(File.ReadAllText(path), options)
-        ?? throw new InvalidOperationException($"Could not deserialize {fixtureName}");
+    var configuration = DalamudJson.Load(File.ReadAllText(path));
     ConfigurationMigrator.MigrateAndNormalize(configuration);
     assertions(configuration);
-    var normalizedJson = JsonSerializer.Serialize(configuration, options);
+    var normalizedJson = DalamudJson.Save(configuration);
     var changedAgain = ConfigurationMigrator.MigrateAndNormalize(configuration);
     Assert(!changedAgain, $"{fixtureName} migration should be idempotent");
-    Assert(JsonSerializer.Serialize(configuration, options) == normalizedJson, $"{fixtureName} should not change on a second pass");
+    Assert(DalamudJson.Save(configuration) == normalizedJson, $"{fixtureName} should not change on a second pass");
+
+    // The path a real user takes: the saved file is loaded again on the next start and migrated again.
+    var reloaded = DalamudJson.Load(normalizedJson);
+    Assert(!ConfigurationMigrator.MigrateAndNormalize(reloaded), $"{fixtureName} should not change after save and reload");
+    Assert(DalamudJson.Save(reloaded) == normalizedJson, $"{fixtureName} should survive save -> load -> save unchanged");
     Console.WriteLine($"PASS {fixtureName}");
 }
 
@@ -916,7 +915,7 @@ static void RunReactionVisualizerStateTests()
     Console.WriteLine("PASS reaction visualizer state");
 }
 
-static void RunConfigurationUpgradeTransactionTests(JsonSerializerOptions serializerOptions)
+static void RunConfigurationUpgradeTransactionTests()
 {
     var directory = Path.Combine(Path.GetTempPath(), $"PuppetMasterMigrationTests-{Guid.NewGuid():N}");
     Directory.CreateDirectory(directory);
@@ -926,8 +925,7 @@ static void RunConfigurationUpgradeTransactionTests(JsonSerializerOptions serial
         var originalBytes = File.ReadAllBytes(sourceFixture);
         var activePath = Path.Combine(directory, "PuppetMaster.json");
         File.WriteAllBytes(activePath, originalBytes);
-        var configuration = JsonSerializer.Deserialize<Configuration>(originalBytes, serializerOptions)
-            ?? throw new InvalidOperationException("Could not deserialize transaction test configuration.");
+        var configuration = DalamudJson.Load(File.ReadAllText(sourceFixture));
         var fixedTime = new DateTime(2026, 1, 2, 3, 4, 5, 6, DateTimeKind.Utc);
 
         var backupPath = ConfigurationUpgradeTransaction.Execute(
@@ -935,16 +933,15 @@ static void RunConfigurationUpgradeTransactionTests(JsonSerializerOptions serial
             configuration.Version,
             ConfigVersion.CURRENT,
             () => ConfigurationMigrator.MigrateAndNormalize(configuration),
-            () => File.WriteAllText(activePath, JsonSerializer.Serialize(configuration, serializerOptions)),
+            () => File.WriteAllText(activePath, DalamudJson.Save(configuration)),
             fixedTime);
 
         Assert(backupPath != null && File.Exists(backupPath), "v1 upgrade should create a recoverable backup");
         Assert(File.ReadAllBytes(backupPath!).SequenceEqual(originalBytes),
             "backup should be byte-for-byte identical to the original v1 file");
-        var activeConfiguration = JsonSerializer.Deserialize<Configuration>(File.ReadAllText(activePath), serializerOptions)
-            ?? throw new InvalidOperationException("Could not deserialize migrated active configuration.");
+        var activeConfiguration = DalamudJson.Load(File.ReadAllText(activePath));
         Assert(activeConfiguration.Version == ConfigVersion.CURRENT,
-            "successful transaction should save the migrated v2 configuration as active");
+            "successful transaction should save the migrated configuration at the current version");
 
         var collisionPath = Path.Combine(directory, "Collision.json");
         var collisionOriginal = "{\"Version\":1,\"Marker\":\"original\"}";
@@ -953,20 +950,19 @@ static void RunConfigurationUpgradeTransactionTests(JsonSerializerOptions serial
             directory,
             "Collision.v1.20260102030405006.backup.json");
         File.WriteAllText(expectedCollisionBackup, "existing backup");
-        var collisionPrepared = false;
-        var collisionSaved = false;
-        AssertThrows<IOException>(() => ConfigurationUpgradeTransaction.Execute(
-                collisionPath,
-                1,
-                ConfigVersion.CURRENT,
-                () => collisionPrepared = true,
-                () => collisionSaved = true,
-                fixedTime),
-            "backup collision should fail closed");
-        Assert(!collisionPrepared && !collisionSaved,
-            "backup failure should prevent both migration preparation and save");
-        Assert(File.ReadAllText(collisionPath) == collisionOriginal,
-            "backup failure should leave the active source file untouched");
+        var collisionBackup = ConfigurationUpgradeTransaction.Execute(
+            collisionPath,
+            1,
+            ConfigVersion.CURRENT,
+            () => { },
+            () => { },
+            fixedTime);
+        Assert(collisionBackup != null && collisionBackup != expectedCollisionBackup && File.Exists(collisionBackup),
+            "backup name collision should pick a fresh name instead of failing the load");
+        Assert(File.ReadAllText(expectedCollisionBackup) == "existing backup",
+            "backup name collision should never overwrite an earlier backup");
+        Assert(File.ReadAllText(collisionBackup!) == collisionOriginal,
+            "collision backup should hold the original source");
 
         var failurePath = Path.Combine(directory, "MigrationFailure.json");
         var failureOriginal = "{\"Version\":1,\"Marker\":\"untouched\"}";
@@ -1018,4 +1014,65 @@ static void RunConfigurationUpgradeTransactionTests(JsonSerializerOptions serial
     {
         Directory.Delete(directory, recursive: true);
     }
+}
+
+static void RunDalamudRoundTripTests()
+{
+    // H6: the user's default blacklist must load back exactly as saved, including shrunk and empty lists.
+    var shrunk = new Configuration();
+    shrunk.DefaultCommandBlacklist = ["/groundsit"];
+    Assert(DalamudJson.Load(DalamudJson.Save(shrunk)).DefaultCommandBlacklist.SequenceEqual(["/groundsit"]),
+        "a shrunk default blacklist should not regain the built-in defaults on load");
+    var emptied = new Configuration();
+    emptied.DefaultCommandBlacklist = [];
+    Assert(DalamudJson.Load(DalamudJson.Save(emptied)).DefaultCommandBlacklist.Count == 0,
+        "an emptied default blacklist should stay empty on load");
+    Assert(new Configuration().DefaultCommandBlacklist.SequenceEqual(["/sit", "/groundsit", "/lounge"]),
+        "a brand-new configuration should still start with the safe defaults");
+
+    // H1: compiled regexes are runtime state. They must not be written, and an old file that has them must load
+    // without them (so they're rebuilt with the match timeout from the current pattern text).
+    var withRegex = new Configuration();
+    var reaction = Reaction.CreateDefault();
+    reaction.CustomPhrase = "hello";
+    reaction.CustomRx = new Regex("(a+)+$", RegexOptions.None, TimeSpan.FromMilliseconds(250));
+    reaction.Rx = new Regex("x", RegexOptions.None, TimeSpan.FromMilliseconds(250));
+    withRegex.Reactions.Add(reaction);
+    var saved = DalamudJson.Save(withRegex);
+    Assert(!saved.Contains("\"Rx\"") && !saved.Contains("\"CustomRx\""), "compiled regexes should not be saved");
+
+    var legacyJson = saved.Replace(
+        "\"CustomPhrase\": \"hello\"",
+        "\"CustomPhrase\": \"hello\", \"CustomRx\": { \"Pattern\": \"(a+)+$\", \"Options\": 0 }, \"Rx\": { \"Pattern\": \"(a+)+$\", \"Options\": 0 }");
+    Assert(legacyJson != saved, "legacy regex fixture should have been built");
+    var legacy = DalamudJson.Load(legacyJson);
+    Assert(legacy.Reactions[0].CustomRx == null && legacy.Reactions[0].Rx == null,
+        "a regex saved by an older version should be dropped on load, not revived without its timeout");
+    Assert(legacy.Reactions[0].CustomPhrase == "hello", "the saved pattern text stays the source of truth");
+
+    Console.WriteLine("PASS Dalamud serializer round trips");
+}
+
+static void RunWaitParsingTests()
+{
+    var culture = System.Globalization.CultureInfo.CurrentCulture;
+    try
+    {
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+        Assert(ReactionCommandMatcher.TryParseWaitSeconds("1.5", out var seconds) && seconds == 1.5,
+            "/wait should read a dot decimal the same on every client language");
+        Assert(ReactionCommandMatcher.TryParseWaitSeconds("90", out seconds) && seconds == 60,
+            "/wait should clamp to 60 seconds");
+        Assert(ReactionCommandMatcher.TryParseWaitSeconds("-3", out seconds) && seconds == 0,
+            "/wait should clamp negatives to zero");
+        Assert(!ReactionCommandMatcher.TryParseWaitSeconds("NaN", out _) &&
+               !ReactionCommandMatcher.TryParseWaitSeconds("Infinity", out _) &&
+               !ReactionCommandMatcher.TryParseWaitSeconds("soon", out _),
+            "/wait should reject NaN, infinity and words");
+    }
+    finally
+    {
+        System.Globalization.CultureInfo.CurrentCulture = culture;
+    }
+    Console.WriteLine("PASS /wait parsing");
 }

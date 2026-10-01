@@ -12,59 +12,116 @@ namespace PuppetMaster
         public static String Name => "PuppetMaster";
         private const String CommandName = "/puppetmaster";
         public WindowSystem windowSystem = new("PuppetMaster");
-        public ConfigWindow configWindow;
-        internal ReactionVisualizerWindow visualizerWindow;
-        internal MessageLogWindow messageLogWindow;
+        public ConfigWindow configWindow = null!;
+        internal ReactionVisualizerWindow visualizerWindow = null!;
+        internal MessageLogWindow messageLogWindow = null!;
+
+        private bool commandRegistered;
+        private bool chatSubscribed;
+        private bool uiSubscribed;
+        private bool chatHandlerStarted;
+        private bool ecommonsInitialized;
 
         public Plugin(IDalamudPluginInterface pluginInterface)
         {
-            // Service
-            pluginInterface.Create<Service>();
-            Service.plugin = this;
-            
-            // Configuration
-            Service.InitializeConfig();
-
-            this.configWindow = new ConfigWindow();
-            this.visualizerWindow = new ReactionVisualizerWindow();
-            this.messageLogWindow = new MessageLogWindow();
-            windowSystem.AddWindow(configWindow);
-            windowSystem.AddWindow(visualizerWindow);
-            windowSystem.AddWindow(messageLogWindow);
-
-            // Handlers
-            ChatHandler.Initialize();
-            Service.CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
+            try
             {
-                HelpMessage = @"Open settings dialog
+                pluginInterface.Create<Service>();
+                Service.plugin = this;
+
+                // ECommons first (its convention), with no optional modules: Chat.SendMessage needs none of them, and
+                // Module.All would install object-life hooks and Dalamud reflection that can break on a game patch.
+                ECommonsMain.Init(pluginInterface, this);
+                ecommonsInitialized = true;
+
+                Service.InitializeConfig();
+                Service.InitializeEmotes();
+
+                this.configWindow = new ConfigWindow();
+                this.visualizerWindow = new ReactionVisualizerWindow();
+                this.messageLogWindow = new MessageLogWindow();
+                windowSystem.AddWindow(configWindow);
+                windowSystem.AddWindow(visualizerWindow);
+                windowSystem.AddWindow(messageLogWindow);
+
+                // Start work and subscribe to events last, so a failure above leaves nothing running.
+                ChatHandler.Initialize();
+                chatHandlerStarted = true;
+                Service.CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
+                {
+                    HelpMessage = @"Open settings dialog
 /puppetmaster on|off - enable or disable all reactions
 /puppetmaster on|off <ReactionName> - enable or disable reactions by name
 /puppetmaster logging on|off - enable or disable message logging
 /puppetmaster logging clear - clear captured logs and overload counters
 /puppetmaster logging save - save captured logs to a timestamped file
 /puppetmaster viz - open the read-only reaction visualizer"
-            });
-            Service.ChatGui.ChatMessage += ChatHandler.OnChatMessage;
-            Service.PluginInterface.UiBuilder.Draw += DrawUI;
-            Service.PluginInterface.UiBuilder.OpenConfigUi += DrawConfigUI;
-            Service.PluginInterface.UiBuilder.OpenMainUi += DrawConfigUI;
-
-            // Excel sheets
-            Service.InitializeEmotes();
-
-            // ECommons
-            ECommonsMain.Init(pluginInterface, this, Module.All);
+                });
+                commandRegistered = true;
+                Service.ChatGui.ChatMessage += ChatHandler.OnChatMessage;
+                chatSubscribed = true;
+                Service.PluginInterface.UiBuilder.Draw += DrawUI;
+                Service.PluginInterface.UiBuilder.OpenConfigUi += DrawConfigUI;
+                Service.PluginInterface.UiBuilder.OpenMainUi += DrawConfigUI;
+                uiSubscribed = true;
+            }
+            catch
+            {
+                // Dalamud never calls Dispose when the constructor throws, so undo whatever was set up.
+                Dispose();
+                throw;
+            }
         }
 
         public void Dispose()
         {
-            windowSystem.RemoveAllWindows();
-            Service.ChatGui.ChatMessage -= ChatHandler.OnChatMessage;
-            ChatHandler.Shutdown();
-            Service.CommandManager.RemoveHandler(CommandName);
-            GC.SuppressFinalize(this);
+            if (uiSubscribed)
+            {
+                Safe(() =>
+                {
+                    Service.PluginInterface.UiBuilder.Draw -= DrawUI;
+                    Service.PluginInterface.UiBuilder.OpenConfigUi -= DrawConfigUI;
+                    Service.PluginInterface.UiBuilder.OpenMainUi -= DrawConfigUI;
+                });
+                uiSubscribed = false;
+            }
+            if (chatSubscribed)
+            {
+                Safe(() => Service.ChatGui.ChatMessage -= ChatHandler.OnChatMessage);
+                chatSubscribed = false;
+            }
+            if (commandRegistered)
+            {
+                Safe(() => Service.CommandManager.RemoveHandler(CommandName));
+                commandRegistered = false;
+            }
+            if (chatHandlerStarted)
+            {
+                Safe(ChatHandler.Shutdown);
+                chatHandlerStarted = false;
+            }
+            Safe(windowSystem.RemoveAllWindows);
+            Safe(() => configWindow?.Dispose());
+            if (ecommonsInitialized)
+            {
+                Safe(ECommonsMain.Dispose);
+                ecommonsInitialized = false;
+            }
+            Service.plugin = null;
+            Service.configuration = null;
+        }
 
-            ECommonsMain.Dispose();
+        // One failing teardown step must not skip the ones after it.
+        private static void Safe(Action action)
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception ex)
+            {
+                Service.PluginLog?.Error(ex, "PuppetMaster teardown step failed.");
+            }
         }
 
         private void OnCommand(String command, String args)

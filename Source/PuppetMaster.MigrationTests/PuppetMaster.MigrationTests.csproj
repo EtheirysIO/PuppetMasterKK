@@ -7,6 +7,17 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <DalamudLibPath Condition="'$(DalamudLibPath)' == ''">$(AppData)\XIVLauncher\addon\Hooks\dev\</DalamudLibPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The same Newtonsoft.Json that Dalamud loads plugin configs with. -->
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(DalamudLibPath)Newtonsoft.Json.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
   <ItemGroup>
     <Compile Include="..\PuppetMaster\Configuration.cs" Link="Configuration.cs" />
     <Compile Include="..\PuppetMaster\ConfigurationMigrator.cs" Link="ConfigurationMigrator.cs" />

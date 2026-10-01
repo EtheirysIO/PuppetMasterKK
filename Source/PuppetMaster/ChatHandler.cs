@@ -97,8 +97,9 @@ namespace PuppetMaster
             retriggerQueues = new ConditionalWeakTable<Reaction, BoundedRetriggerScheduler<PendingRetrigger>>();
             var currentDispatcher = dispatcher;
             var token = pluginLifetime.Token;
-            for (var index = 0; index < 4; index++)
-                Track(Task.Run(() => DispatchLoopAsync(currentDispatcher.Reader, token), token));
+            // One reader: matching is cheap and runs are started without awaiting them, and a single reader keeps
+            // triggers in chat order (several readers made "queue latest" keep an older trigger).
+            Track(Task.Run(() => DispatchLoopAsync(currentDispatcher.Reader, token), token));
         }
 
         public static void Shutdown()
@@ -170,7 +171,7 @@ namespace PuppetMaster
             return Channel.CreateBounded<ChatEnvelope>(new BoundedChannelOptions(128)
             {
                 FullMode = BoundedChannelFullMode.DropOldest,
-                SingleReader = false,
+                SingleReader = true,
                 SingleWriter = false,
                 AllowSynchronousContinuations = false,
             }, _ => Interlocked.Increment(ref droppedMessageCount));
@@ -303,11 +304,15 @@ namespace PuppetMaster
                             textCommand.Args = "motion";
                     }
 
-                    if (IsCommandAllowed(reaction, textCommand.Main, out var permissionReason))
+                    if (textCommand.Main == "/wait")
                     {
-                        if (textCommand.Main == "/wait" && float.TryParse(textCommand.Args, out var seconds))
-                            await Task.Delay((int)(Math.Clamp(seconds, 0.0, 60.0) * 1000.0), cancellation.Token);
-                        else
+                        // Plugin-internal pause, not a game command: no allow-list entry needed, but a block entry
+                        // still turns it off.
+                        if (!reaction.CommandBlacklist.Contains("/wait") && ReactionCommandMatcher.TryParseWaitSeconds(textCommand.Args, out var seconds))
+                            await Task.Delay(TimeSpan.FromSeconds(seconds), cancellation.Token);
+                    }
+                    else if (IsCommandAllowed(reaction, textCommand.Main, out var permissionReason))
+                    {
                         {
                             // Lifted from AmberPlume's pull request. (to review)
                             try
@@ -334,16 +339,14 @@ namespace PuppetMaster
                             }
                             catch (Exception ex)
                             {
-                                Service.ChatGui.PrintError($"[PuppetMaster] Framework thread execution failed: {ex.Message}");
+                                PrintErrorOnFramework($"[PuppetMaster] Framework thread execution failed: {ex.Message}", pluginToken);
                             }
                         }
                     }
-#if DEBUG
                     else
                     {
-                        Service.ChatGui.Print($"{textCommand.Main} blocked: {permissionReason}");
+                        Service.PluginLog.Debug("{Reaction}: {Command} blocked: {Reason}", reaction.Name, textCommand.Main, permissionReason);
                     }
-#endif
                     if (notification != null)
                     {
                         await UpdateReactionNotificationAsync(
@@ -367,8 +370,41 @@ namespace PuppetMaster
                 if (notification != null && !pluginToken.IsCancellationRequested)
                     await FinishReactionNotificationAsync(notification, reaction.Name, false, ex.Message, pluginToken);
                 else
-                    Service.ChatGui.PrintError($"[PuppetMaster] Reaction {reaction.Name} failed: {ex.Message}");
+                    PrintErrorOnFramework($"[PuppetMaster] Reaction {reaction.Name} failed: {ex.Message}", pluginToken);
             }
+            finally
+            {
+                // A notification must never outlive its run (its Cancel button closes over a disposed token source).
+                if (notification != null && notification.DismissReason == null && !pluginToken.IsCancellationRequested)
+                {
+                    var leftover = notification;
+                    try
+                    {
+                        await Service.Framework.RunOnFrameworkThread(() =>
+                        {
+                            if (leftover.DismissReason == null)
+                                leftover.DismissNow();
+                            ActiveNotifications.TryRemove(leftover, out _);
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        Service.PluginLog.Warning(ex, "Could not dismiss a PuppetMaster progress notification.");
+                    }
+                }
+            }
+        }
+
+        // IChatGui must be used from the framework thread; background runs route their messages through here.
+        private static void PrintErrorOnFramework(string message, CancellationToken pluginToken)
+        {
+            if (pluginToken.IsCancellationRequested || Volatile.Read(ref shuttingDown) != 0)
+                return;
+            Track(Service.Framework.RunOnFrameworkThread(() =>
+            {
+                if (!pluginToken.IsCancellationRequested && Volatile.Read(ref shuttingDown) == 0)
+                    Service.ChatGui.PrintError(message);
+            }));
         }
 
         private static bool IsCommandAllowed(ReactionSnapshot reaction, string command, out string reason)
@@ -458,18 +494,24 @@ namespace PuppetMaster
                 state.NextNotificationTimestamp = nowTimestamp + 5 * Stopwatch.Frequency;
             }
 
-            await Service.Framework.RunOnFrameworkThread(() =>
+            try
             {
-                if (pluginToken.IsCancellationRequested)
-                    return;
-                Service.NotificationManager.AddNotification(new Notification
+                await Service.Framework.RunOnFrameworkThread(() =>
                 {
-                    Title = "Puppet Master",
-                    Content = $"Reaction failed: {reaction.Name}\n{error}",
-                    Type = NotificationType.Error,
-                    InitialDuration = TimeSpan.FromSeconds(5),
+                    if (pluginToken.IsCancellationRequested)
+                        return;
+                    Service.NotificationManager.AddNotification(new Notification
+                    {
+                        Title = "Puppet Master",
+                        Content = $"Reaction failed: {reaction.Name}\n{error}",
+                        Type = NotificationType.Error,
+                        InitialDuration = TimeSpan.FromSeconds(5),
+                    });
                 });
-            });
+            }
+            catch (Exception) when (pluginToken.IsCancellationRequested)
+            {
+            }
         }
 
         private static async Task NotifySchedulerFailureAsync(
@@ -589,6 +631,18 @@ namespace PuppetMaster
                 }
             }
 
+            // While queued triggers are draining, a new trigger goes behind them, never ahead.
+            if (!restartImmediately &&
+                retriggerQueues.TryGetValue(reaction.Source, out var activeQueue) &&
+                activeQueue.IsActive)
+            {
+                if (reaction.ExecutionPolicy != ReactionExecutionPolicy.IgnoreWhileRunning)
+                    QueueRetrigger(reaction, command, pluginToken);
+                else
+                    await NotifySuppressionAsync(reaction, ReactionRejectionReason.Busy, pluginToken);
+                return;
+            }
+
             if (!ExecutionGate.TryEnter(
                     reaction.Source,
                     restartImmediately ? TimeSpan.Zero : TimeSpan.FromSeconds(reaction.CooldownSeconds),
@@ -607,23 +661,26 @@ namespace PuppetMaster
                 return;
             }
 
-            await RunAcceptedCommandAsync(reaction, command, lease!, pluginToken);
+            await RunAcceptedCommandAsync(reaction, command, lease!, pluginToken, fromQueue: false);
         }
 
         private static async Task RunAcceptedCommandAsync(
             ReactionSnapshot reaction,
             string command,
             IDisposable lease,
-            CancellationToken pluginToken)
+            CancellationToken pluginToken,
+            bool fromQueue)
         {
-            pluginToken.ThrowIfCancellationRequested();
-            ReactionVisualizerState.DequeuedRun(reaction.Control.VisualizerId);
-            var visualizerRunId = ReactionVisualizerState.Started(
-                reaction.Control.VisualizerId,
-                reaction.Name,
-                command);
+            // The lease is owned from the first line, so nothing below can leave the reaction stuck as busy.
             using (lease)
             {
+                pluginToken.ThrowIfCancellationRequested();
+                if (fromQueue)
+                    ReactionVisualizerState.DequeuedRun(reaction.Control.VisualizerId);
+                var visualizerRunId = ReactionVisualizerState.Started(
+                    reaction.Control.VisualizerId,
+                    reaction.Name,
+                    command);
                 var lines = MyRegex().Split(command);
                 using var runCancellation = CancellationTokenSource.CreateLinkedTokenSource(pluginToken);
                 ActiveReactionCancellations[reaction.Source] = runCancellation;
@@ -666,7 +723,8 @@ namespace PuppetMaster
                         pending.Reaction,
                         pending.Command,
                         lease,
-                        pending.PluginToken),
+                        pending.PluginToken,
+                        fromQueue: true),
                     dropped => Interlocked.Add(ref droppedRetriggerCount, dropped),
                     (exception, discarded) =>
                     {
@@ -708,13 +766,14 @@ namespace PuppetMaster
 
             if (isHandled) return;
 
-            string messageStr = message.ToString();
-            var token = pluginLifetime.Token;
-            Track(Service.Framework.RunOnFrameworkThread(() =>
+            try
             {
-                if (!token.IsCancellationRequested)
-                    EnqueueMessage(type, messageStr);
-            }));
+                EnqueueMessage(type, message.ToString());
+            }
+            catch (Exception ex)
+            {
+                Service.PluginLog.Error(ex, "PuppetMaster failed to process a chat message.");
+            }
         }
 
         private static void EnqueueMessage(XivChatType type, string message)

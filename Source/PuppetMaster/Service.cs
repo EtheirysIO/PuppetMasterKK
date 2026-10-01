@@ -224,50 +224,86 @@ namespace PuppetMaster
             if (pattern == null)
                 return result;
 
-#if DEBUG
-            /*
-            if (usingRegex)
-                ChatGui.Print($"[TESTING] Pattern:{configuration.Reactions[index].CustomRx} Replace:{configuration.Reactions[index].ReplaceMatch} Test:{configuration.Reactions[index].TestInput}");
-            else
-                ChatGui.Print($"[TESTING] Pattern:{configuration.Reactions[index].Rx} Test:{configuration.Reactions[index].TestInput}");
-            */
-#endif
-
-            try
-            {
-                var matches = pattern.Matches(reaction.TestInput);
-                if (matches.Count != 0)
-                {
-                    result.Args = matches[0].ToString();
-                    result.Main = pattern.Replace(
-                        matches[0].Value,
-                        reaction.UseRegex ? reaction.ReplaceMatch : GetDefaultReplaceMatch());
-                }
-            }
-            catch (RegexMatchTimeoutException) { }
-            catch (ArgumentException) { }
-            result.Main = FormatCommand(result.Main).ToString();
+            var status = ReactionCommandMatcher.TryGenerateCommand(
+                pattern,
+                reaction.TestInput,
+                reaction.UseRegex ? reaction.ReplaceMatch : GetDefaultReplaceMatch(),
+                out var command,
+                out var matchedText,
+                out _);
+            if (status != ReactionMatchStatus.Success)
+                return result;
+            result.Args = matchedText;
+            result.Main = FormatCommand(command).ToString();
             return result;
         }
 
         public static void InitializeConfig()
         {
-            configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
-            configuration.Initialize(PluginInterface);
-
-            var sourceVersion = configuration.Version;
-            ConfigurationUpgradeTransaction.Execute(
-                PluginInterface.ConfigFile.FullName,
-                sourceVersion,
-                ConfigVersion.CURRENT,
-                PrepareConfigurationForUse,
-                configuration.Save,
-                backupCreated: backupPath =>
-                    PluginLog.Information(
-                        "Backed up PuppetMaster configuration v{SourceVersion} to {BackupPath} before migrating to v{TargetVersion}.",
+            Exception? loadError = null;
+            try
+            {
+                if (PluginInterface.GetPluginConfig() is Configuration loaded)
+                {
+                    configuration = loaded;
+                    configuration.Initialize(PluginInterface);
+                    var sourceVersion = configuration.Version;
+                    ConfigurationUpgradeTransaction.Execute(
+                        PluginInterface.ConfigFile.FullName,
                         sourceVersion,
-                        backupPath,
-                        ConfigVersion.CURRENT));
+                        ConfigVersion.CURRENT,
+                        PrepareConfigurationForUse,
+                        configuration.Save,
+                        backupCreated: backupPath =>
+                            PluginLog.Information(
+                                "Backed up PuppetMaster configuration v{SourceVersion} to {BackupPath} before migrating to v{TargetVersion}.",
+                                sourceVersion,
+                                backupPath,
+                                ConfigVersion.CURRENT));
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                loadError = ex;
+            }
+
+            // No config yet, or one we can't read (corrupt, truncated, from a newer version, failed migration).
+            // Keep the unreadable file aside so nothing is lost, then start from defaults so the plugin still loads.
+            string? preservedPath = null;
+            if (loadError != null)
+            {
+                try
+                {
+                    if (PluginInterface.ConfigFile.Exists)
+                        preservedPath = ConfigurationUpgradeTransaction.CopyAside(
+                            PluginInterface.ConfigFile.FullName, "unreadable", "backup");
+                }
+                catch (Exception copyError)
+                {
+                    PluginLog.Error(copyError, "Failed to preserve the unreadable PuppetMaster configuration.");
+                }
+                PluginLog.Error(loadError, "PuppetMaster configuration could not be loaded; preserved it at {Path} and started from defaults.", preservedPath ?? "(not preserved)");
+            }
+
+            configuration = new Configuration();
+            configuration.Initialize(PluginInterface);
+            PrepareConfigurationForUse();
+            if (loadError == null || preservedPath != null)
+                configuration.Save();
+
+            if (loadError != null)
+            {
+                NotificationManager.AddNotification(new Dalamud.Interface.ImGuiNotification.Notification
+                {
+                    Title = "Puppet Master",
+                    Content = preservedPath != null
+                        ? $"Your settings could not be read, so Puppet Master started with defaults.\nThe old file was kept at:\n{preservedPath}"
+                        : "Your settings could not be read, so Puppet Master is using defaults for this session and will not overwrite the file.",
+                    Type = Dalamud.Interface.ImGuiNotification.NotificationType.Error,
+                    InitialDuration = TimeSpan.FromSeconds(20),
+                });
+            }
         }
 
         private static void PrepareConfigurationForUse()

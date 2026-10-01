@@ -26,6 +26,16 @@ internal sealed class BoundedRetriggerScheduler<T>(
         }
     }
 
+    // True while queued triggers are waiting or being drained; new triggers must queue behind them.
+    public bool IsActive
+    {
+        get
+        {
+            lock (sync)
+                return isDraining || queue.Count > 0;
+        }
+    }
+
     public Task? Enqueue(ReactionExecutionPolicy policy, T item, CancellationToken lifetimeToken)
     {
         lock (sync)
