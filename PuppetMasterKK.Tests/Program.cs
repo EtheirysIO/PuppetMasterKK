@@ -1287,6 +1287,28 @@ static void RunRateLimiterTests()
 
 static void RunFollowTests()
 {
+    {
+        var start = new System.Numerics.Vector3(0, 0, 0);
+        var corner = new System.Numerics.Vector3(10, 0, 0);
+        var end = new System.Numerics.Vector3(10, 0, 10);
+        var smooth = PathSmoothing.RoundCorners(start, [corner, end]);
+        var maxCut = 0f;
+        foreach (var point in smooth)
+            maxCut = Math.Max(maxCut, Math.Min(Math.Abs(point.Z), Math.Abs(point.X - 10)));
+        Assert(smooth[^1] == end && smooth.Count > 2 && !smooth.Contains(corner) && maxCut <= PathSmoothing.CornerCut + 0.001f,
+            "a corner should be rounded into a short curve that stays near the original path and still ends at the destination");
+        Assert(PathSmoothing.RoundCorners(start, [end]).SequenceEqual([end]), "a straight path stays as it is");
+        var tiny = PathSmoothing.RoundCorners(start, [new(0.5f, 0, 0), new(0.5f, 0, 0.5f)]);
+        Assert(tiny.TrueForAll(p => p.X >= -0.001f && p.X <= 0.501f && p.Z >= -0.001f && p.Z <= 0.501f),
+            "short legs cut at most half of each leg");
+
+        var heading = new System.Numerics.Vector3(1, 0, 0);
+        var path = new List<System.Numerics.Vector3> { new(-2, 0, 0), new(1, 0, 0), new(8, 0, 0), new(8, 0, 9) };
+        Assert(PathSmoothing.TrimBehind(path, start, heading).SequenceEqual([new(8, 0, 0), new(8, 0, 9)]),
+            "waypoints behind us or right beside us are dropped from a swapped-in path");
+        Assert(PathSmoothing.TrimBehind([new(-2, 0, 0)], start, heading).Count == 1, "the destination is never dropped");
+    }
+
     FollowRequest Parse(string message, string call = "Ami", string follow = "follow", string stop = "stop", string come = "come")
         => FollowParser.Parse(ReactionCommandMatcher.SanitizeIncoming(message), call, follow, stop, come);
 

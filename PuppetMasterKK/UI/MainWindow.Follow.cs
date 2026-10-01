@@ -80,7 +80,7 @@ internal sealed partial class MainWindow
             W.Chip(vnavmesh ? "vnavmesh detected" : "vnavmesh not detected", vnavmesh ? Theme.Accent : Theme.Faint);
             Hint("When the player is in your zone but more than 20 yalms away, walk to them first, then target and follow them. " +
                  "Party members can be anywhere in the zone; anyone else has to be close enough to see. Gives up in combat, " +
-                 "after 90 seconds, or if they leave the zone. The stop word stops the walk too.");
+                 "after 90 seconds, if they leave the zone, or if it keeps getting stuck. The stop word stops the walk too.");
         }
 
         var count = settings.Channels.Count;
