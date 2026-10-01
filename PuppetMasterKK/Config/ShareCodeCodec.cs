@@ -10,8 +10,9 @@ namespace PuppetMasterKK;
 
 /// <summary>
 /// What a share code carries: a trigger's own rules, never who may trigger it (no player names), its notifications,
-/// whether it's on, or custom channels. Its own type, so nothing added to <see cref="Reaction"/> is ever shared by
-/// accident.
+/// whether it's on, custom channels or its turn group (a name for the sharer's own triggers: it means nothing to
+/// whoever imports it, and joining one of theirs by chance would hold their triggers up). Its own type, so nothing
+/// added to <see cref="Reaction"/> is ever shared by accident.
 /// </summary>
 public sealed class TriggerShare
 {

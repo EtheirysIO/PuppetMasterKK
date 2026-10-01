@@ -334,7 +334,7 @@ public static class ConfigurationMigrator
         return changed;
     }
 
-    // Per-person limits, choices and the final action.
+    // Per-person limits, choices, the final action and the turn group.
     private static bool RepairV6Fields(Reaction reaction)
     {
         var changed = false;
@@ -363,6 +363,8 @@ public static class ConfigurationMigrator
             changed = true;
         }
         if (!Enum.IsDefined(reaction.FinalWhen)) { reaction.FinalWhen = FinalActionWhen.AfterEachRun; changed = true; }
+        var turnGroup = TurnGroups.Normalize(reaction.TurnGroup);
+        if (reaction.TurnGroup != turnGroup) { reaction.TurnGroup = turnGroup; changed = true; }
         return changed;
     }
 

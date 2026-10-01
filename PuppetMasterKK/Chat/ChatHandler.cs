@@ -24,9 +24,12 @@ namespace PuppetMasterKK
             new(ReferenceEqualityComparer.Instance);
         private static readonly ConcurrentDictionary<IActiveNotification, byte> ActiveNotifications = new();
         private static ConditionalWeakTable<Reaction, SuppressionNotificationState> suppressionNotifications = new();
-        private static ConditionalWeakTable<Reaction, ErrorNotificationState> errorNotifications = new();
+        // Keyed by the trigger (or a scheduler, for its failures).
+        private static ConditionalWeakTable<object, ErrorNotificationState> errorNotifications = new();
         private static ConditionalWeakTable<Reaction, ReactionControlState> reactionControls = new();
+        // Waiting requests: one scheduler per trigger on its own, and one per turn group (shared by its triggers).
         private static ConditionalWeakTable<Reaction, BoundedRetriggerScheduler<PendingRetrigger>> retriggerQueues = new();
+        private static ConcurrentDictionary<string, BoundedRetriggerScheduler<PendingRetrigger>> groupQueues = NewGroupQueues();
         private static CancellationTokenSource pluginLifetime = new();
         private static long nextVisualizerReactionId;
         private static long droppedMessageCount;
@@ -59,7 +62,9 @@ namespace PuppetMasterKK
             bool OneWaitingPerSender,
             string[] FinalCommands,
             bool[] FinalWaitLines,
-            FinalActionWhen FinalWhen);
+            FinalActionWhen FinalWhen,
+            // The turn group (TurnGroups.LaneOf); empty: the trigger runs on its own.
+            string Lane);
 
         private sealed record ChatEnvelope(string Message, SenderInfo Sender, List<ReactionSnapshot> Reactions);
 
@@ -121,9 +126,10 @@ namespace PuppetMasterKK
             ExecutionGate.Reset();
             ReactionVisualizerState.Reset();
             suppressionNotifications = new ConditionalWeakTable<Reaction, SuppressionNotificationState>();
-            errorNotifications = new ConditionalWeakTable<Reaction, ErrorNotificationState>();
+            errorNotifications = new ConditionalWeakTable<object, ErrorNotificationState>();
             reactionControls = new ConditionalWeakTable<Reaction, ReactionControlState>();
             retriggerQueues = new ConditionalWeakTable<Reaction, BoundedRetriggerScheduler<PendingRetrigger>>();
+            groupQueues = NewGroupQueues();
             var currentDispatcher = dispatcher;
             var token = pluginLifetime.Token;
             // One reader: matching is cheap and runs are started without awaiting them, and a single reader keeps
@@ -148,9 +154,10 @@ namespace PuppetMasterKK
             ExecutionGate.Reset();
             ReactionVisualizerState.Reset();
             suppressionNotifications = new ConditionalWeakTable<Reaction, SuppressionNotificationState>();
-            errorNotifications = new ConditionalWeakTable<Reaction, ErrorNotificationState>();
+            errorNotifications = new ConditionalWeakTable<object, ErrorNotificationState>();
             reactionControls = new ConditionalWeakTable<Reaction, ReactionControlState>();
             retriggerQueues = new ConditionalWeakTable<Reaction, BoundedRetriggerScheduler<PendingRetrigger>>();
+            groupQueues = NewGroupQueues();
         }
 
         // Every trigger: running ones stop, waiting ones are dropped.
@@ -175,15 +182,28 @@ namespace PuppetMasterKK
         }
 
         // Drops a trigger's waiting requests; replaced: a newer request took their place (counted and shown as such).
+        // In a turn group only its own requests go: the group's other triggers keep their place. Every group is looked
+        // at, since the trigger may have moved to another group since it queued.
         private static void CancelQueuedRetriggers(Reaction reaction, bool replaced = false)
         {
             if (reactionControls.TryGetValue(reaction, out var control))
                 ReactionVisualizerState.ClearQueued(control.VisualizerId, replaced);
-            if (!retriggerQueues.TryGetValue(reaction, out var state))
-                return;
-            var cleared = state.Cancel();
+            var cleared = retriggerQueues.TryGetValue(reaction, out var own) ? own.Cancel() : 0;
+            foreach (var group in groupQueues.Values)
+                cleared += group.RemoveWhere(pending => ReferenceEquals(pending.Reaction.Source, reaction));
             if (replaced && control != null)
                 ReactionVisualizerState.Count(control.VisualizerId, VisualizerCounter.Replaced, cleared);
+        }
+
+        private static ConcurrentDictionary<string, BoundedRetriggerScheduler<PendingRetrigger>> NewGroupQueues()
+            => new(StringComparer.OrdinalIgnoreCase);
+
+        // The scheduler a trigger's requests wait in, if it has one yet.
+        private static BoundedRetriggerScheduler<PendingRetrigger>? FindScheduler(ReactionSnapshot reaction)
+        {
+            if (reaction.Lane.Length == 0)
+                return retriggerQueues.TryGetValue(reaction.Source, out var own) ? own : null;
+            return groupQueues.TryGetValue(reaction.Lane, out var group) ? group : null;
         }
 
         /// <summary>Practice mode on or off (this session). Everything running or waiting stops either way.</summary>
@@ -285,7 +305,8 @@ namespace PuppetMasterKK
                 reaction.OneWaitingPerSender,
                 finalCommands,
                 ReactionCommandMatcher.TemplateWaitLines(string.Join('\n', finalCommands)),
-                reaction.FinalWhen);
+                reaction.FinalWhen,
+                TurnGroups.LaneOf(reaction));
         }
 
         // Fire-and-forget work: a failure is logged instead of going unobserved.
@@ -573,7 +594,8 @@ namespace PuppetMasterKK
         }
 
         private static async Task NotifySchedulerFailureAsync(
-            Reaction reaction,
+            string name,
+            object key,
             string error,
             int discarded,
             CancellationToken pluginToken)
@@ -583,7 +605,7 @@ namespace PuppetMasterKK
                 Service.configuration?.ShowReactionNotifications != true)
                 return;
 
-            var state = errorNotifications.GetValue(reaction, static _ => new ErrorNotificationState());
+            var state = errorNotifications.GetValue(key, static _ => new ErrorNotificationState());
             var nowTimestamp = Stopwatch.GetTimestamp();
             lock (state)
             {
@@ -598,7 +620,7 @@ namespace PuppetMasterKK
                 {
                     if (Volatile.Read(ref shuttingDown) != 0 || pluginToken.IsCancellationRequested)
                         return;
-                    Service.Notify($"Trigger scheduler failed: {reaction.Name}\n{error}" +
+                    Service.Notify($"Trigger scheduler failed: {name}\n{error}" +
                                    (discarded > 0 ? $"\n{discarded} pending trigger(s) discarded." : string.Empty),
                                    NotificationType.Error, 6);
                 });
@@ -696,17 +718,19 @@ namespace PuppetMasterKK
             }
 
             var restartImmediately = PluginUiLogic.RestartsActiveRun(reaction.ExecutionPolicy);
+            var grouped = reaction.Lane.Length > 0;
             if (restartImmediately)
             {
-                CancelQueuedRetriggers(reaction.Source, replaced: true);
+                // In a turn group only its own run stops; the new request then takes its turn like Queue latest (its
+                // own waiting request, if any, is replaced in place), so the group's other triggers aren't cut in on.
+                if (!grouped)
+                    CancelQueuedRetriggers(reaction.Source, replaced: true);
                 if (ActiveReactionCancellations.TryGetValue(reaction.Source, out var activeRun))
                     activeRun.Cancel(interrupted: true);
             }
 
             // While queued triggers are draining, a new trigger goes behind them, never ahead.
-            if (!restartImmediately &&
-                retriggerQueues.TryGetValue(reaction.Source, out var activeQueue) &&
-                activeQueue.IsActive)
+            if ((!restartImmediately || grouped) && FindScheduler(reaction) is { IsActive: true })
             {
                 if (reaction.ExecutionPolicy != ReactionExecutionPolicy.IgnoreWhileRunning)
                     QueueRetrigger(reaction, request, pluginToken);
@@ -716,6 +740,7 @@ namespace PuppetMasterKK
             }
 
             if (!ExecutionGate.TryEnter(
+                    reaction.Lane,
                     reaction.Source,
                     restartImmediately ? TimeSpan.Zero : TimeSpan.FromSeconds(reaction.CooldownSeconds),
                     Stopwatch.GetTimestamp(),
@@ -807,8 +832,8 @@ namespace PuppetMasterKK
             if (reaction.FinalCommands.Length == 0 || pluginToken.IsCancellationRequested || !reaction.Source.Enabled ||
                 Volatile.Read(ref reaction.Control.Generation) != reaction.Generation)
                 return;
-            if (reaction.FinalWhen == FinalActionWhen.WhenNothingWaiting &&
-                retriggerQueues.TryGetValue(reaction.Source, out var queue) && queue.PendingCount > 0)
+            // In a turn group: nothing of the whole group's waiting (its next run is about to start anyway).
+            if (reaction.FinalWhen == FinalActionWhen.WhenNothingWaiting && FindScheduler(reaction) is { PendingCount: > 0 })
                 return;
 
             using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(pluginToken);
@@ -827,44 +852,11 @@ namespace PuppetMasterKK
             CancellationToken pluginToken)
         {
             Accepted(reaction, request);
-            var visualizerId = reaction.Control.VisualizerId;
-            var scheduler = retriggerQueues.GetValue(reaction.Source, source =>
-                new BoundedRetriggerScheduler<PendingRetrigger>(
-                    16,
-                    (pending, cancellationToken) => ExecutionGate.EnterWhenAvailableAsync(
-                        source,
-                        PluginUiLogic.IgnoresCooldown(pending.Reaction.ExecutionPolicy)
-                            ? TimeSpan.Zero
-                            : TimeSpan.FromSeconds(pending.Reaction.CooldownSeconds),
-                        cancellationToken,
-                        PluginUiLogic.IgnoresCooldown(pending.Reaction.ExecutionPolicy)),
-                    (pending, lease) => RunAcceptedCommandAsync(
-                        pending.Reaction,
-                        pending.Run,
-                        lease,
-                        pending.PluginToken,
-                        fromQueue: true),
-                    dropped =>
-                    {
-                        Interlocked.Add(ref droppedRetriggerCount, dropped);
-                        ReactionVisualizerState.Count(visualizerId, VisualizerCounter.DiscardedFull, dropped);
-                    },
-                    (exception, discarded) =>
-                    {
-                        if (discarded > 0)
-                        {
-                            Interlocked.Add(ref droppedRetriggerCount, discarded);
-                            ReactionVisualizerState.Count(visualizerId, VisualizerCounter.DiscardedFull, discarded);
-                        }
-                        Service.PluginLog.Error(
-                            exception,
-                            "Retrigger scheduler failed for {ReactionName}; discarded {DiscardedCount} pending trigger(s).",
-                            source.Name,
-                            discarded);
-                        Track(NotifySchedulerFailureAsync(source, exception.Message, discarded, pluginToken));
-                    },
-                    replaced => ReactionVisualizerState.Count(visualizerId, VisualizerCounter.Replaced, replaced)));
-            // One waiting request per person (Queue every): the sender's newer request replaces their older one.
+            var scheduler = reaction.Lane.Length == 0
+                ? retriggerQueues.GetValue(reaction.Source, source => CreateScheduler(source.Name, pluginToken))
+                : groupQueues.GetOrAdd(reaction.Lane, lane => CreateScheduler($"turn group {lane}", pluginToken));
+            // One waiting request per person (Queue every): the sender's newer request replaces their older one. Only
+            // this trigger's: in a turn group the queue never lets it touch another trigger's requests.
             var replaceSameSender = reaction.OneWaitingPerSender &&
                                     reaction.ExecutionPolicy == ReactionExecutionPolicy.QueueEveryTrigger;
             var from = request.From;
@@ -882,6 +874,52 @@ namespace PuppetMasterKK
                 replaceSameSender);
             if (drainer != null)
                 Track(drainer);
+        }
+
+        // A lane's scheduler: a trigger's own, or a turn group's. Everything about a request (its cooldown, its counts)
+        // comes from the request itself, since a group's requests belong to different triggers.
+        private static BoundedRetriggerScheduler<PendingRetrigger> CreateScheduler(string name, CancellationToken pluginToken)
+        {
+            var failureKey = new object();
+            return new BoundedRetriggerScheduler<PendingRetrigger>(
+                16,
+                (pending, cancellationToken) => ExecutionGate.EnterWhenAvailableAsync(
+                    pending.Reaction.Lane,
+                    pending.Reaction.Source,
+                    PluginUiLogic.IgnoresCooldown(pending.Reaction.ExecutionPolicy)
+                        ? TimeSpan.Zero
+                        : TimeSpan.FromSeconds(pending.Reaction.CooldownSeconds),
+                    cancellationToken,
+                    PluginUiLogic.IgnoresCooldown(pending.Reaction.ExecutionPolicy)),
+                (pending, lease) => RunAcceptedCommandAsync(
+                    pending.Reaction,
+                    pending.Run,
+                    lease,
+                    pending.PluginToken,
+                    fromQueue: true),
+                reportFailure: (exception, discarded) =>
+                {
+                    Service.PluginLog.Error(
+                        exception,
+                        "Retrigger scheduler failed for {ReactionName}; discarded {DiscardedCount} pending trigger(s).",
+                        name,
+                        discarded);
+                    Track(NotifySchedulerFailureAsync(name, failureKey, exception.Message, discarded, pluginToken));
+                },
+                sameOwner: (a, b) => ReferenceEquals(a.Reaction.Source, b.Reaction.Source),
+                reportRemoved: (pending, removal) =>
+                {
+                    // Counted against the request's own trigger, whichever trigger's request pushed it out.
+                    var visualizerId = pending.Reaction.Control.VisualizerId;
+                    if (removal == RetriggerRemoval.Replaced)
+                    {
+                        ReactionVisualizerState.Count(visualizerId, VisualizerCounter.Replaced);
+                        return;
+                    }
+                    Interlocked.Increment(ref droppedRetriggerCount);
+                    ReactionVisualizerState.Count(visualizerId, VisualizerCounter.DiscardedFull);
+                    ReactionVisualizerState.DequeuedRun(visualizerId);
+                });
         }
 
         // Game event: nothing may escape it.

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Diagnostics;
@@ -15,10 +16,16 @@ internal enum ReactionRejectionReason
     SenderCooldown,
 }
 
+/// <summary>
+/// Who may run now. Busy is per lane: a trigger on its own, or a turn group (its triggers take turns, never
+/// overlapping). Cooldown is always per trigger. Locks are taken lane first, then trigger.
+/// </summary>
 internal sealed class ReactionExecutionGate
 {
     private static readonly TimeSpan MaxDelayStep = TimeSpan.FromDays(1);
-    private ConditionalWeakTable<Reaction, State> states = new();
+    private ConditionalWeakTable<Reaction, ReactionState> states = new();
+    // Turn groups, by name (TurnGroups.LaneOf: trimmed, case doesn't matter).
+    private ConcurrentDictionary<string, Lane> groups = new(StringComparer.OrdinalIgnoreCase);
 
     public bool TryEnter(
         Reaction reaction,
@@ -27,26 +34,41 @@ internal sealed class ReactionExecutionGate
         out IDisposable? lease,
         out ReactionRejectionReason rejectionReason,
         bool ignoreCooldown = false)
+        => TryEnter(null, reaction, cooldown, nowTimestamp, out lease, out rejectionReason, ignoreCooldown);
+
+    /// <param name="lane">The trigger's turn group; null or empty: the trigger runs on its own.</param>
+    public bool TryEnter(
+        string? lane,
+        Reaction reaction,
+        TimeSpan cooldown,
+        long nowTimestamp,
+        out IDisposable? lease,
+        out ReactionRejectionReason rejectionReason,
+        bool ignoreCooldown = false)
     {
-        var state = states.GetValue(reaction, static _ => new State());
-        lock (state)
+        var state = states.GetValue(reaction, static _ => new ReactionState());
+        var laneState = LaneFor(lane, state);
+        lock (laneState)
         {
-            if (state.Running || state.WaitingEntrants > 0)
+            if (laneState.Running || laneState.WaitingEntrants > 0)
             {
                 lease = null;
                 rejectionReason = ReactionRejectionReason.Busy;
                 return false;
             }
 
-            if (!ignoreCooldown && nowTimestamp < state.NextAllowedTimestamp)
+            lock (state)
             {
-                lease = null;
-                rejectionReason = ReactionRejectionReason.Cooldown;
-                return false;
-            }
+                if (!ignoreCooldown && nowTimestamp < state.NextAllowedTimestamp)
+                {
+                    lease = null;
+                    rejectionReason = ReactionRejectionReason.Cooldown;
+                    return false;
+                }
 
-            StartRun(state, cooldown, nowTimestamp);
-            lease = new Lease(state);
+                StartRun(laneState, state, cooldown, nowTimestamp);
+            }
+            lease = new Lease(laneState);
             rejectionReason = ReactionRejectionReason.None;
             return true;
         }
@@ -54,18 +76,28 @@ internal sealed class ReactionExecutionGate
 
     public void Reset()
     {
-        states = new ConditionalWeakTable<Reaction, State>();
+        states = new ConditionalWeakTable<Reaction, ReactionState>();
+        groups = new ConcurrentDictionary<string, Lane>(StringComparer.OrdinalIgnoreCase);
     }
 
+    public Task<IDisposable> EnterWhenAvailableAsync(
+        Reaction reaction,
+        TimeSpan cooldown,
+        CancellationToken cancellationToken,
+        bool ignoreCooldown = false)
+        => EnterWhenAvailableAsync(null, reaction, cooldown, cancellationToken, ignoreCooldown);
+
     public async Task<IDisposable> EnterWhenAvailableAsync(
+        string? lane,
         Reaction reaction,
         TimeSpan cooldown,
         CancellationToken cancellationToken,
         bool ignoreCooldown = false)
     {
-        var state = states.GetValue(reaction, static _ => new State());
-        lock (state)
-            state.WaitingEntrants++;
+        var state = states.GetValue(reaction, static _ => new ReactionState());
+        var laneState = LaneFor(lane, state);
+        lock (laneState)
+            laneState.WaitingEntrants++;
 
         try
         {
@@ -73,23 +105,28 @@ internal sealed class ReactionExecutionGate
             {
                 Task? idleTask = null;
                 TimeSpan cooldownDelay = TimeSpan.Zero;
-                lock (state)
+                lock (laneState)
                 {
-                    var nowTimestamp = Stopwatch.GetTimestamp();
-                    if (!state.Running && (ignoreCooldown || nowTimestamp >= state.NextAllowedTimestamp))
-                    {
-                        state.WaitingEntrants--;
-                        StartRun(state, cooldown, nowTimestamp);
-                        return new Lease(state);
-                    }
-
-                    if (state.Running)
-                        idleTask = state.Idle.Task;
+                    if (laneState.Running)
+                        idleTask = laneState.Idle.Task;
                     else
-                        // Task.Delay takes at most ~49 days: a longer cooldown is waited out in steps.
-                        cooldownDelay = TimeSpan.FromSeconds(Math.Min(
-                            (state.NextAllowedTimestamp - nowTimestamp) / (double)Stopwatch.Frequency,
-                            MaxDelayStep.TotalSeconds));
+                    {
+                        lock (state)
+                        {
+                            var nowTimestamp = Stopwatch.GetTimestamp();
+                            if (ignoreCooldown || nowTimestamp >= state.NextAllowedTimestamp)
+                            {
+                                laneState.WaitingEntrants--;
+                                StartRun(laneState, state, cooldown, nowTimestamp);
+                                return new Lease(laneState);
+                            }
+
+                            // Task.Delay takes at most ~49 days: a longer cooldown is waited out in steps.
+                            cooldownDelay = TimeSpan.FromSeconds(Math.Min(
+                                (state.NextAllowedTimestamp - nowTimestamp) / (double)Stopwatch.Frequency,
+                                MaxDelayStep.TotalSeconds));
+                        }
+                    }
                 }
 
                 if (idleTask != null)
@@ -100,16 +137,19 @@ internal sealed class ReactionExecutionGate
         }
         catch
         {
-            lock (state)
-                state.WaitingEntrants--;
+            lock (laneState)
+                laneState.WaitingEntrants--;
             throw;
         }
     }
 
-    private static void StartRun(State state, TimeSpan cooldown, long nowTimestamp)
+    private Lane LaneFor(string? lane, ReactionState state)
+        => string.IsNullOrEmpty(lane) ? state.Own : groups.GetOrAdd(lane, static _ => new Lane());
+
+    private static void StartRun(Lane lane, ReactionState state, TimeSpan cooldown, long nowTimestamp)
     {
-        state.Running = true;
-        state.Idle = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        lane.Running = true;
+        lane.Idle = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var cooldownSeconds = Math.Max(0, cooldown.TotalSeconds);
         var cooldownTicks = cooldownSeconds >= long.MaxValue / (double)Stopwatch.Frequency
             ? long.MaxValue
@@ -119,11 +159,18 @@ internal sealed class ReactionExecutionGate
             : nowTimestamp + cooldownTicks;
     }
 
-    private sealed class State
+    // One trigger: its cooldown, and its lane when it isn't in a turn group.
+    private sealed class ReactionState
+    {
+        public long NextAllowedTimestamp;
+        public readonly Lane Own = new();
+    }
+
+    // What takes turns: whether something is running, and who's waiting for it.
+    private sealed class Lane
     {
         public bool Running;
         public int WaitingEntrants;
-        public long NextAllowedTimestamp;
         public TaskCompletionSource Idle = CreateIdleSignal();
 
         private static TaskCompletionSource CreateIdleSignal()
@@ -134,13 +181,13 @@ internal sealed class ReactionExecutionGate
         }
     }
 
-    private sealed class Lease(State state) : IDisposable
+    private sealed class Lease(Lane lane) : IDisposable
     {
-        private State? state = state;
+        private Lane? lane = lane;
 
         public void Dispose()
         {
-            var current = Interlocked.Exchange(ref state, null);
+            var current = Interlocked.Exchange(ref lane, null);
             if (current == null)
                 return;
             TaskCompletionSource idle;

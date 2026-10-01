@@ -47,7 +47,7 @@ internal sealed partial class MainWindow
             var droppedRequests = ChatHandler.DroppedRetriggerCount;
             W.Stat((droppedMessages + droppedRequests).ToString(), "Discarded");
             if (ImGui.IsItemHovered())
-                W.Tooltip($"Dropped under load:\n{droppedMessages} messages (too many at once)\n{droppedRequests} waiting requests (over 16 for one trigger)");
+                W.Tooltip($"Dropped under load:\n{droppedMessages} messages (too many at once)\n{droppedRequests} waiting requests (over 16 for one trigger or turn group)");
         }
 
         using (W.Card("running", "Running now"))
@@ -289,10 +289,11 @@ internal sealed partial class MainWindow
         {
             W.Segmented("##rosterFilter", RosterFilters, ref rosterFilter, 0f);
             Gap(4f);
-            using var table = W.Table("##rosterTable", 5);
+            using var table = W.Table("##rosterTable", 6);
             if (!table.Open)
                 return;
             ImGui.TableSetupColumn("Trigger", ImGuiTableColumnFlags.WidthStretch, 1f);
+            ImGui.TableSetupColumn("Group", ImGuiTableColumnFlags.WidthStretch, 0.6f);
             W.FixedColumn("State", 150f);
             W.FixedColumn("Running", 64f);
             W.FixedColumn("Waiting", 64f);
@@ -339,6 +340,16 @@ internal sealed partial class MainWindow
                     page = Page.Reactions;
                 }
                 ImGui.PopID();
+                ImGui.TableNextColumn();
+                var group = TurnGroups.LaneOf(reaction);
+                if (group.Length == 0)
+                    ImGui.TextColored(Theme.Faint, "—");
+                else
+                {
+                    ImGui.TextColored(Theme.Dim, W.Fit(group, ImGui.GetContentRegionAvail().X));
+                    if (ImGui.IsItemHovered())
+                        W.Tooltip($"Takes turns with the other triggers in {group}.");
+                }
                 ImGui.TableNextColumn();
                 W.Chip(W.Fit(text, Theme.S(140f)), color);
                 if (ImGui.IsItemHovered())

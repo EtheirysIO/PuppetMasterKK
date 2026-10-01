@@ -213,7 +213,7 @@ Cancelling stops unsent lines and current waits, but it can't undo a command alr
 
 ### Cooldown and repeat behavior
 
-While a trigger is busy, another run of that same trigger can't start. Different triggers can still overlap.
+While a trigger is busy, another run of that same trigger can't start. Different triggers can still overlap, unless they're in the same [turn group](#turn-groups).
 
 **Cooldown** is the minimum time between starts. With a 10-second cooldown, a trigger starting at `00:00` can't start again before `00:10`. It must also finish its current run first.
 
@@ -243,12 +243,26 @@ People are told apart by `Name@World`. Messages with no player behind them (syst
 
 It never runs after **Stop**, a restart, turning the trigger off, `/pmkk off` or a stop word, and it stops by itself after 10 seconds. The trigger stays busy while it runs. Practice mode applies to it too.
 
+### Turn groups
+
+**Takes turns with**, at the bottom of **Repeats and cooldown**, puts triggers in a group: pick an existing group, or type a name and press **New group**. Triggers in the same group never run at the same time. When one is running, another member's request is handled by that member's own repeat setting: ignored, or queued behind it.
+
+- Each trigger keeps its own cooldown. A member cooling down doesn't hold the others up, except while its own request is first in line.
+- The group shares one line of up to 16 waiting requests, in the order they arrived. When it's full, the oldest is dropped, whichever trigger it belongs to.
+- **Queue latest trigger** and **One waiting request per person** only replace the trigger's own waiting requests, never another member's. The newest keeps the trigger's place in line.
+- **Restart immediately** only stops the trigger's own run. If another member is running or waiting, the new request takes its turn like **Queue latest trigger**.
+- **When nothing is waiting** (final action) means nothing is waiting in the whole group.
+- **Stop**, turning a trigger off or changing it only clears that trigger's waiting requests. Changing a trigger's group stops its run and clears its waiting requests.
+- Names ignore case and are at most 40 characters. Duplicating a trigger keeps its group. Share codes never carry it: the group names your own triggers, which mean nothing to whoever imports it.
+
+The sidebar shows each trigger's group next to its state, and **All triggers** on the Activity page has a **Group** column.
+
 <details>
 <summary>More about cooldowns and waiting requests</summary>
 
 - Cooldown starts when a trigger starts.
 - Waiting requests run in the order they arrived, and a new message never jumps ahead of them.
-- **Queue every trigger** keeps up to 16 waiting requests per trigger.
+- **Queue every trigger** keeps up to 16 waiting requests per trigger (per turn group, for triggers in one).
 - Only a busy trigger saves requests: one that arrives while the trigger is idle but still cooling down is ignored.
 - **Restart immediately** stops unsent lines, clears older waiting requests, and starts the newest request without cooldown.
 - Turning a trigger off or deleting it stops its current wait and clears its waiting requests. Changing its senders, commands or emote text stops the current run and clears waiting requests; other changes clear waiting requests, and a run already going finishes with the settings it started with.
@@ -333,7 +347,7 @@ The counts at the top cover this session; hover one for details.
 
 - **Ignored** — requests dropped because the trigger was busy (with **Ignore**) or cooling down (for everyone, or for that person).
 - **Replaced** — waiting requests dropped for a newer one (**Queue latest trigger**, **Restart immediately**, **One waiting request per person**).
-- **Discarded** — dropped under load: messages that arrived too fast, and requests over the 16 a trigger can queue.
+- **Discarded** — dropped under load: messages that arrived too fast, and requests over the 16 a trigger (or turn group) can queue. Each is counted against its own trigger.
 
 **All triggers** has an **Ignored** column per trigger; hover it for everything else (started, done, stopped, interrupted, replaced, discarded, blocked lines, pattern timeouts). Under **Recently finished**, **Interrupted** means a newer request restarted it and **Replaced** means it never ran because a newer request took its place; **Stopped** means you (or a change to the trigger) stopped it. **Clear** in the message log, or `/pmkk logging clear`, resets the counts.
 
@@ -391,7 +405,7 @@ Triggers may share a name. `/pmkk on|off <TriggerName>` affects every trigger wi
 
 ### Share codes
 
-To share a trigger, press the share button next to **Duplicate**. A code starting with `PMKK1.` is copied; paste it anywhere. It carries the trigger's phrase or pattern, commands, choices, final action, repeat and cooldown settings, Allowed and Blocked lists, protections and built-in channels. It never carries who can trigger it (no player names), notifications, custom channels or whether it's on. A trigger with no protections is shared with them turned on.
+To share a trigger, press the share button next to **Duplicate**. A code starting with `PMKK1.` is copied; paste it anywhere. It carries the trigger's phrase or pattern, commands, choices, final action, repeat and cooldown settings, Allowed and Blocked lists, protections and built-in channels. It never carries who can trigger it (no player names), notifications, custom channels, its turn group or whether it's on. A trigger with no protections is shared with them turned on.
 
 To import one, copy the code, then press the import button next to **New trigger**. The code is read from the clipboard only, never from chat. Before anything is added you see its pattern and commands, a **Try it** box checked against your own rules, and **Needs your OK**: everything it allows that your **Settings → New triggers** don't, each with its own tick:
 

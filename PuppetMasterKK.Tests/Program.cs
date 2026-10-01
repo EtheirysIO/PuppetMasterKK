@@ -265,6 +265,7 @@ RunFinalActionTests();
 RunV6MigrationTests();
 RunShareCodeTests();
 RunShareCodeReviewTests();
+RunTurnGroupTests();
 
 Console.WriteLine("All PuppetMasterKK tests passed.");
 return;
@@ -2562,4 +2563,269 @@ static void RunShareCodeReviewTests()
         "NormalizeReaction repairs one trigger");
 
     Console.WriteLine("PASS share code review");
+}
+
+static void RunTurnGroupTests()
+{
+    // Names: trimmed, one line, capped; case doesn't matter; empty means on its own.
+    Assert(TurnGroups.Normalize(null) == "" && TurnGroups.Normalize(" \t\n ") == "" && TurnGroups.Normalize("  Dances ") == "Dances",
+        "a group name is trimmed, and a blank one means no group");
+    Assert(TurnGroups.Normalize("Dan\nces") == "Dan ces" && TurnGroups.Normalize(new string('x', 500)).Length == TurnGroups.MaxNameLength,
+        "a group name is one line and at most 40 characters");
+    var members = new[]
+    {
+        new Reaction { TurnGroup = "Dances" }, new Reaction { TurnGroup = " dances" }, new Reaction { TurnGroup = "Emotes" },
+        new Reaction(), new Reaction { TurnGroup = null! },
+    };
+    Assert(TurnGroups.Names(members).SequenceEqual(["Dances", "Emotes"]) && TurnGroups.MemberCount(members, "DANCES") == 2 &&
+           TurnGroups.MemberCount(members, "") == 0 && TurnGroups.LaneOf(members[4]) == "",
+        "groups are listed once whatever the case, and a trigger without one is on its own");
+    Assert(PluginUiLogic.CloneReaction(members[0]).TurnGroup == "Dances", "a copy takes turns with the original");
+
+    // Saved values: null, padded, multi-line and oversized names are repaired (v6, no new version).
+    var hostile = DalamudJson.Load("{\"Version\": 6, \"Reactions\": [" +
+                                   "{\"Name\": \"A\", \"TurnGroup\": null}," +
+                                   "{\"Name\": \"B\", \"TurnGroup\": \"  Dances\\r\\n \"}," +
+                                   "{\"Name\": \"C\", \"TurnGroup\": \"" + new string('z', 5000) + "\"}," +
+                                   "{\"Name\": \"D\", \"TurnGroup\": 12}]}");
+    Assert(ConfigurationMigrator.MigrateAndNormalize(hostile) && hostile.Version == ConfigVersion.CURRENT,
+        "a hostile turn group should be repaired");
+    Assert(hostile.Reactions[0].TurnGroup == "" && hostile.Reactions[1].TurnGroup == "Dances" &&
+           hostile.Reactions[2].TurnGroup.Length == TurnGroups.MaxNameLength && hostile.Reactions[3].TurnGroup == "12",
+        "turn groups should be repaired to a short, trimmed, one-line name");
+    Assert(!ConfigurationMigrator.MigrateAndNormalize(hostile), "repairing turn groups should be idempotent");
+    var fromV5 = DalamudJson.Load("{\"Version\": 5, \"Reactions\": [{\"Name\": \"Old\"}]}");
+    ConfigurationMigrator.MigrateAndNormalize(fromV5);
+    Assert(fromV5.Reactions[0].TurnGroup == "", "a v5 trigger runs on its own");
+
+    // Share codes leave the group out: it names the sharer's own triggers.
+    var grouped = new Reaction { Name = "Grouped", TriggerPhrase = "please do", TurnGroup = "Secret dances" };
+    Assert(ShareCodeCodec.TryEncode(grouped, _ => true, 1000, out var groupedCode, out _, out _) &&
+           !ShareJson(groupedCode).Contains("Secret dances", StringComparison.Ordinal) &&
+           !ShareJson(groupedCode).Contains("TurnGroup", StringComparison.Ordinal),
+        "a share code must not carry the turn group");
+
+    // Gate: busy is per group, cooldown per trigger.
+    var gate = new ReactionExecutionGate();
+    var wave = new Reaction();
+    var dance = new Reaction();
+    var loner = new Reaction();
+    var second = System.Diagnostics.Stopwatch.Frequency;
+    const long t = 1_000_000;
+    Assert(gate.TryEnter("Dances", wave, TimeSpan.FromSeconds(10), t, out var waveLease, out _), "the first member enters");
+    Assert(!gate.TryEnter("dances", dance, TimeSpan.Zero, t, out _, out var danceReason) && danceReason == ReactionRejectionReason.Busy,
+        "another member of the same group (any case) is busy while one runs");
+    Assert(!gate.TryEnter("Dances", dance, TimeSpan.Zero, t, out _, out _, ignoreCooldown: true),
+        "Restart immediately can't cut in on another member's run");
+    Assert(gate.TryEnter(null, loner, TimeSpan.Zero, t, out var lonerLease, out _), "a trigger on its own still runs alongside");
+    Assert(gate.TryEnter("Emotes", dance, TimeSpan.Zero, t, out var otherGroupLease, out _), "another group still runs alongside");
+    lonerLease!.Dispose();
+    otherGroupLease!.Dispose();
+    waveLease!.Dispose();
+    Assert(gate.TryEnter("Dances", dance, TimeSpan.Zero, t + second, out var danceLease, out _),
+        "a member isn't held up by another member's cooldown");
+    danceLease!.Dispose();
+    Assert(!gate.TryEnter("Dances", wave, TimeSpan.FromSeconds(10), t + 5 * second, out _, out var waveReason) &&
+           waveReason == ReactionRejectionReason.Cooldown, "each member keeps its own cooldown");
+    Assert(gate.TryEnter("Dances", wave, TimeSpan.FromSeconds(10), t + 10 * second, out var waveAgain, out _),
+        "the member's cooldown ends on time");
+    waveAgain!.Dispose();
+
+    // Members never overlap, however their runs are started.
+    var stressGate = new ReactionExecutionGate();
+    var trio = new[] { new Reaction(), new Reaction(), new Reaction() };
+    var running = 0;
+    var most = 0;
+    var finished = 0;
+    async Task RunOnce(int i)
+    {
+        using (await stressGate.EnterWhenAvailableAsync("Dances", trio[i % 3], TimeSpan.Zero, CancellationToken.None))
+        {
+            var now = Interlocked.Increment(ref running);
+            InterlockedMax(ref most, now);
+            await Task.Delay(1);
+            Interlocked.Decrement(ref running);
+            Interlocked.Increment(ref finished);
+        }
+    }
+    Task.WaitAll(Enumerable.Range(0, 60).Select(i => Task.Run(() => RunOnce(i))).ToArray());
+    Assert(most == 1 && finished == 60, $"members of a group should never run at the same time (at most {most} at once)");
+    Assert(stressGate.TryEnter("Dances", trio[0], TimeSpan.Zero, System.Diagnostics.Stopwatch.GetTimestamp(), out var idleLease, out _),
+        "the group is free again once everyone is done");
+    var waiting = stressGate.EnterWhenAvailableAsync("Dances", trio[1], TimeSpan.Zero, CancellationToken.None);
+    Assert(!stressGate.TryEnter("Dances", trio[2], TimeSpan.Zero, System.Diagnostics.Stopwatch.GetTimestamp(), out _, out var behind) &&
+           behind == ReactionRejectionReason.Busy, "a member can't jump ahead of another member already waiting");
+    idleLease!.Dispose();
+    waiting.GetAwaiter().GetResult().Dispose();
+
+    // The queue: Queue latest and Restart only replace their own trigger's request, in its place in line.
+    static bool SameOwner(string a, string b) => a[0] == b[0];
+    var removed = new List<(string Item, RetriggerRemoval Kind)>();
+    void Removed(string item, RetriggerRemoval kind) => removed.Add((item, kind));
+    var lane = new BoundedRetriggerQueue<string>(16, SameOwner);
+    lane.Enqueue(ReactionExecutionPolicy.QueueLatestTrigger, "A1", null, out _, Removed);
+    lane.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, "B1", null, out _, Removed);
+    Assert(lane.Enqueue(ReactionExecutionPolicy.QueueLatestTrigger, "A2", null, out _, Removed) == 1 &&
+           lane.Enqueue(ReactionExecutionPolicy.RestartImmediately, "C1", null, out _, Removed) == 0,
+        "Queue latest replaces only its own trigger's request");
+    Assert(lane.ToArray().SequenceEqual(["A2", "B1", "C1"]) && removed.SequenceEqual([("A1", RetriggerRemoval.Replaced)]),
+        "another member's request is never dropped by Queue latest, and the newest keeps its trigger's place");
+    lane.Enqueue(ReactionExecutionPolicy.RestartImmediately, "C2", null, out _, Removed);
+    Assert(lane.ToArray().SequenceEqual(["A2", "B1", "C2"]), "Restart immediately replaces only its own waiting request");
+
+    // One waiting request per person only touches its own trigger's requests.
+    removed.Clear();
+    var perPerson = new BoundedRetriggerQueue<(string Owner, string From)>(16, (a, b) => a.Owner == b.Owner);
+    perPerson.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, ("A", "Nova Ral'veth@Exodus"));
+    perPerson.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, ("B", "Nova Ral'veth@Exodus"));
+    perPerson.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, ("A", "nova ral'veth@exodus"),
+        item => item.From.Equals("nova ral'veth@exodus", StringComparison.OrdinalIgnoreCase), out var replacedPerPerson);
+    Assert(replacedPerPerson == 1 && perPerson.ToArray().SequenceEqual([("B", "Nova Ral'veth@Exodus"), ("A", "nova ral'veth@exodus")]),
+        "a person's newer request replaces only their request to the same trigger");
+
+    // 16 waiting in total per group: the oldest goes, and it's reported as its own trigger's.
+    removed.Clear();
+    var full = new BoundedRetriggerQueue<string>(16, SameOwner);
+    for (var i = 0; i < 16; i++)
+        full.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, i % 2 == 0 ? $"A{i}" : $"B{i}", null, out _, Removed);
+    full.Enqueue(ReactionExecutionPolicy.QueueLatestTrigger, "C0", null, out _, Removed);
+    full.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, "B99", null, out _, Removed);
+    Assert(full.Count == 16 && removed.SequenceEqual([("A0", RetriggerRemoval.Discarded), ("B1", RetriggerRemoval.Discarded)]),
+        "a group holds at most 16 waiting requests in all, Queue latest too, and each drop is its own trigger's");
+    Assert(full.RemoveWhere(item => item[0] == 'A') == 7 && full.ToArray().All(item => item[0] != 'A'),
+        "removing one member's requests keeps the others'");
+
+    // Scheduler: a group's requests run one at a time, in order, with counts kept per trigger.
+    var counts = new Dictionary<(char, RetriggerRemoval), int>();
+    var gateOpen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var acquired = new List<string>();
+    var executed = new List<string>();
+    var acquiring = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var scheduler = new BoundedRetriggerScheduler<string>(
+        16,
+        async (item, token) =>
+        {
+            lock (acquired)
+                acquired.Add(item);
+            acquiring.TrySetResult();
+            await gateOpen.Task.WaitAsync(token);
+            return new CancellationTokenSource();
+        },
+        (item, lease) =>
+        {
+            lease.Dispose();
+            executed.Add(item);
+            return Task.CompletedTask;
+        },
+        sameOwner: SameOwner,
+        reportRemoved: (item, kind) => counts[(item[0], kind)] = counts.GetValueOrDefault((item[0], kind)) + 1);
+    var drainer = scheduler.Enqueue(ReactionExecutionPolicy.QueueLatestTrigger, "A1", CancellationToken.None)!;
+    acquiring.Task.GetAwaiter().GetResult();
+    scheduler.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, "B1", CancellationToken.None);
+    scheduler.Enqueue(ReactionExecutionPolicy.QueueLatestTrigger, "A2", CancellationToken.None);
+    gateOpen.TrySetResult();
+    drainer.GetAwaiter().GetResult();
+    Assert(executed.SequenceEqual(["A2", "B1"]) && counts.GetValueOrDefault(('A', RetriggerRemoval.Replaced)) == 1 &&
+           counts.Count == 1, $"Queue latest in a group keeps the other member's request ({string.Join(", ", executed)})");
+
+    // Invalidating one member while its request is first in line: the others keep their place and still run.
+    var neverOpen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var openForB = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var waitingForA = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var cancelledA = false;
+    var invalidated = new List<string>();
+    var invalidating = new BoundedRetriggerScheduler<string>(
+        16,
+        async (item, token) =>
+        {
+            if (item[0] == 'A')
+            {
+                waitingForA.TrySetResult();
+                try { await neverOpen.Task.WaitAsync(token); }
+                catch (OperationCanceledException) { cancelledA = true; throw; }
+            }
+            else
+                await openForB.Task.WaitAsync(token);
+            return new CancellationTokenSource();
+        },
+        (item, lease) =>
+        {
+            lease.Dispose();
+            invalidated.Add(item);
+            return Task.CompletedTask;
+        },
+        sameOwner: SameOwner);
+    var invalidatingDrainer = invalidating.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, "A1", CancellationToken.None)!;
+    waitingForA.Task.GetAwaiter().GetResult();
+    invalidating.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, "B1", CancellationToken.None);
+    invalidating.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, "A2", CancellationToken.None);
+    invalidating.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, "B2", CancellationToken.None);
+    Assert(invalidating.RemoveWhere(item => item[0] == 'A') == 2, "invalidating a member drops its waiting requests");
+    Assert(invalidating.CountWhere(item => item[0] == 'B') == 2 && invalidating.PendingCount == 2, "the other member's stay");
+    openForB.TrySetResult();
+    invalidatingDrainer.GetAwaiter().GetResult();
+    Assert(cancelledA && invalidated.SequenceEqual(["B1", "B2"]),
+        $"the wait for the dropped request stops and the next member's run goes ahead ({string.Join(", ", invalidated)})");
+
+    // Dropped just as its turn came (the wait couldn't be stopped in time): that turn isn't handed to another member.
+    var late = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var lateWaiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var leases = new List<(string Item, CancellationTokenSource Lease)>();
+    var lateRuns = new List<string>();
+    var stubborn = new BoundedRetriggerScheduler<string>(
+        16,
+        async (item, _) =>
+        {
+            if (item[0] == 'A')
+            {
+                lateWaiting.TrySetResult();
+                await late.Task; // Ignores the token, like a gate that already handed the turn over.
+            }
+            var lease = new CancellationTokenSource();
+            lock (leases)
+                leases.Add((item, lease));
+            return lease;
+        },
+        (item, lease) =>
+        {
+            lease.Dispose();
+            lateRuns.Add(item);
+            return Task.CompletedTask;
+        },
+        sameOwner: SameOwner);
+    var stubbornDrainer = stubborn.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, "A1", CancellationToken.None)!;
+    lateWaiting.Task.GetAwaiter().GetResult();
+    stubborn.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, "B1", CancellationToken.None);
+    stubborn.RemoveWhere(item => item[0] == 'A');
+    late.TrySetResult();
+    stubbornDrainer.GetAwaiter().GetResult();
+    Assert(lateRuns.SequenceEqual(["B1"]) && leases.Select(entry => entry.Item).SequenceEqual(["A1", "B1"]),
+        "B1 should run under its own turn, never under the turn taken for the dropped A1");
+
+    // Restart immediately in a group: the other member's waiting request survives, and theirs isn't cut short.
+    var restartGate = new ReactionExecutionGate();
+    var member = new Reaction();
+    var other = new Reaction();
+    Assert(restartGate.TryEnter("Dances", other, TimeSpan.Zero, t, out var otherLease, out _), "the other member is running");
+    Assert(!restartGate.TryEnter("Dances", member, TimeSpan.Zero, t, out _, out var restartReason, ignoreCooldown: true) &&
+           restartReason == ReactionRejectionReason.Busy, "a restart in the group waits for its turn");
+    var restartQueue = new BoundedRetriggerQueue<string>(16, SameOwner);
+    restartQueue.Enqueue(ReactionExecutionPolicy.QueueEveryTrigger, "B1");
+    restartQueue.Enqueue(ReactionExecutionPolicy.RestartImmediately, "A1");
+    restartQueue.Enqueue(ReactionExecutionPolicy.RestartImmediately, "A2");
+    Assert(restartQueue.ToArray().SequenceEqual(["B1", "A2"]), "the restart behaves like Queue latest and keeps B's request");
+    var restartWaiting = restartGate.EnterWhenAvailableAsync("Dances", member, TimeSpan.Zero, CancellationToken.None, ignoreCooldown: true);
+    Assert(!restartWaiting.IsCompleted, "the restart runs only after the other member's run ends");
+    otherLease!.Dispose();
+    restartWaiting.GetAwaiter().GetResult().Dispose();
+
+    Console.WriteLine("PASS turn groups");
+}
+
+static void InterlockedMax(ref int target, int value)
+{
+    int seen;
+    while ((seen = Volatile.Read(ref target)) < value && Interlocked.CompareExchange(ref target, value, seen) != seen)
+    {
+    }
 }

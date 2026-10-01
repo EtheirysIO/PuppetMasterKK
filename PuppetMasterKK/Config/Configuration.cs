@@ -108,6 +108,8 @@ namespace PuppetMasterKK
         // Run after a run finishes on its own, as written (no $1), at most MaxFinalCommands lines.
         public List<string> FinalCommands { get; set; } = [];
         public FinalActionWhen FinalWhen { get; set; } = FinalActionWhen.AfterEachRun;
+        // Triggers with the same name here take turns instead of overlapping (empty: runs on its own; see TurnGroups).
+        public string TurnGroup { get; set; } = string.Empty;
         // Runtime only. Compiled regexes must never be persisted: Newtonsoft would rebuild them without the match
         // timeout, and a stale saved pattern would shadow later edits to TriggerPhrase/CustomPhrase.
         [JsonIgnore]

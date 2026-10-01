@@ -28,6 +28,7 @@ internal sealed partial class MainWindow
     private string allowInput = string.Empty;
     private string blockInput = string.Empty;
     private string finalInput = string.Empty;
+    private string turnGroupInput = string.Empty;
     // What's typed in each "Also these players" box, per card (the reaction editor and Emote replies have their own).
     private readonly Dictionary<string, string> namedInputs = new();
     private long previewBuiltAt;
@@ -47,7 +48,7 @@ internal sealed partial class MainWindow
         Config.CurrentReactionEdit = index;
         if (Service.IsValidReactionIndex(index))
             Service.InitializeRegex(index);
-        allowInput = blockInput = finalInput = string.Empty;
+        allowInput = blockInput = finalInput = turnGroupInput = string.Empty;
         namedInputs.Remove("reactionSenders");
         previewDirty = true;
         Changed();
@@ -113,6 +114,7 @@ internal sealed partial class MainWindow
 
             var running = IsRunning(activity, reaction);
             var status = PluginUiLogic.GetStatus(reaction);
+            var group = TurnGroups.LaneOf(reaction);
             var (icon, subtitle) = running
                 ? (FontAwesomeIcon.Play, "Running")
                 : status switch
@@ -124,6 +126,8 @@ internal sealed partial class MainWindow
                     ReactionUiStatus.NoChannels => (FontAwesomeIcon.ExclamationTriangle, "No channels"),
                     _ => (FontAwesomeIcon.ExclamationTriangle, "Trigger not valid"),
                 };
+            if (group.Length > 0)
+                subtitle = $"{subtitle} · {group}";
             ImGui.PushID(index);
             var clicked = W.NavRow("trigger", icon, DisplayName(reaction), page == Page.Reactions && index == selected, subtitle);
             ImGui.PopID();
@@ -760,7 +764,58 @@ internal sealed partial class MainWindow
                 Changed();
             }
             Hint("For different commands per person, duplicate the trigger and give each copy its own senders.");
+
+            Gap();
+            Label("Takes turns with");
+            DrawTurnGroupPicker(reaction);
+            Hint("Triggers in the same group never run at the same time: one waits for the other, as set above. Each keeps its own cooldown.");
         }
+    }
+
+    /// <summary>The trigger's turn group: an existing one from the list, or a new name typed in.</summary>
+    private void DrawTurnGroupPicker(Reaction reaction)
+    {
+        const string alone = "Nobody (runs on its own)";
+        var current = TurnGroups.LaneOf(reaction);
+        string? picked = null;
+        using (var combo = W.Combo("##turnGroup", current.Length == 0 ? alone : current, Theme.S(260f)))
+        {
+            if (combo.Open)
+            {
+                if (W.ComboItem(alone, current.Length == 0))
+                    picked = string.Empty;
+                var names = TurnGroups.Names(Config.Reactions);
+                for (var i = 0; i < names.Count; i++)
+                {
+                    ImGui.PushID(i);
+                    var members = TurnGroups.MemberCount(Config.Reactions, names[i]);
+                    if (W.ComboItem($"{names[i]} ({members} {(members == 1 ? "trigger" : "triggers")})",
+                                    names[i].Equals(current, StringComparison.OrdinalIgnoreCase)))
+                        picked = names[i];
+                    ImGui.PopID();
+                }
+            }
+        }
+        ImGui.SameLine(0f, Theme.Space.Tight);
+        var addW = W.ButtonWidth("New group");
+        var submitted = W.TextInput("##newTurnGroup", ref turnGroupInput, "Group name", -(addW + Theme.Space.Tight),
+                                    TurnGroups.MaxNameLength, flags: ImGuiInputTextFlags.EnterReturnsTrue);
+        ImGui.SameLine(0f, Theme.Space.Tight);
+        var typed = TurnGroups.Normalize(turnGroupInput);
+        var clicked = W.SecondaryButton("New group##newTurnGroupButton", new Vector2(addW, ImGui.GetFrameHeight()),
+                                        enabled: typed.Length > 0);
+        if ((submitted || clicked) && typed.Length > 0)
+        {
+            picked = typed;
+            turnGroupInput = string.Empty;
+        }
+
+        if (picked == null || picked.Equals(current, StringComparison.Ordinal))
+            return;
+        reaction.TurnGroup = picked;
+        // What's running or waiting took its turn in the old group: stop it, so it can't overlap the new one.
+        ChatHandler.InvalidateReaction(reaction, true);
+        Changed();
     }
 
     private void DrawNotificationsCard(Reaction reaction)

@@ -31,6 +31,7 @@ PuppetMasterKK watches the chat channels you pick. When someone you trust says t
 - **Who and where:** each trigger picks its channels (Say, Tell, Party, FC, linkshells, CWLS, custom channels) and who can set it off (Anyone, Friends, your Free Company, your party and alliance, or named players).
 - **Repeats and cooldowns:** a message that arrives while a trigger is busy can be ignored, queued, kept as the newest only, or restart the trigger right away.
 - **Per-person limits:** a cooldown for each person, and one waiting request per person.
+- **Turn groups:** triggers in the same group take turns instead of overlapping, each with its own cooldown.
 - **Choices:** run one of several sets of commands, at random, in turn, or picked by a word from your list.
 - **Final action:** up to five commands after a run finishes, such as a closing emote.
 - **Share codes:** copy a trigger as a code. Importing one shows everything it would allow; nothing risky comes in unless you tick it, and it arrives turned off.
@@ -102,12 +103,6 @@ PuppetMasterKK watches the chat channels you pick. When someone you trust says t
 PuppetMasterKK continues DodingDaga's Puppet Master. Puppet Master started as a simple way for friends to sync emotes through chat. One `please dance` message in Free Company chat could make every online FC member using Puppet Master dance together, wherever they were in the game.
 
 Over time it grew beyond emotes: other text commands, several command lines, custom chat channels and waits between steps. PuppetMasterKK adds protections built for strangers in public chat, per-trigger senders and channels, Follow mode with vnavmesh walking, Mimic, and Right Back At You's emote replies, all in one window.
-
-## What's next
-
-These are ideas, not promises. Plans may change as they are tested.
-
-- Group selected triggers so they take turns instead of overlapping.
 
 ## Building
 

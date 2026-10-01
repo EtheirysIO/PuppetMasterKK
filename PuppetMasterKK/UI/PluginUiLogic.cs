@@ -300,6 +300,8 @@ internal static class PluginUiLogic
             Choices = (source.Choices ?? []).Select(choice => new ReactionChoice { Word = choice.Word, Commands = choice.Commands }).ToList(),
             FinalCommands = new List<string>(source.FinalCommands ?? []),
             FinalWhen = source.FinalWhen,
+            // A copy takes turns with the original (and the rest of its group).
+            TurnGroup = source.TurnGroup,
         };
     }
 
