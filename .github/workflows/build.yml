@@ -1,0 +1,129 @@
+name: Build
+
+# Every push and pull request: build, test, and keep latest.zip as an artifact.
+# A tag "v8.0.0.0" also publishes a GitHub Release and uploads to repo.etheirys.io (stable).
+# A tag with a suffix, "v8.0.1.0-test1", does the same as a pre-release and uploads to the testing channel.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      channel: ${{ steps.version.outputs.channel }}
+    steps:
+      # phys1ksUI is compiled in from a sibling folder (..\phys1ksUI), so both go side by side.
+      - uses: actions/checkout@v4
+        with:
+          path: PuppetMaster
+      - uses: actions/checkout@v4
+        with:
+          repository: EtheirysIO/phys1ksUI
+          path: phys1ksUI
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # Dalamud's dev assemblies, where the Dalamud SDK and the tests look for them.
+      - name: Get Dalamud
+        shell: pwsh
+        run: |
+          $dest = Join-Path $env:APPDATA 'XIVLauncher\addon\Hooks\dev'
+          New-Item -ItemType Directory -Force $dest | Out-Null
+          Invoke-WebRequest https://goatcorp.github.io/dalamud-distrib/latest.zip -OutFile dalamud.zip
+          Expand-Archive dalamud.zip -DestinationPath $dest -Force
+
+      # Tag "v8.0.0.0" -> 8.0.0.0, stable. Tag "v8.0.1.0-test1" -> 8.0.1.0, testing. Otherwise the csproj's version.
+      - name: Version
+        id: version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="${GITHUB_REF_NAME#v}"
+            version="${tag%%-*}"
+            if [[ "$tag" == *-* ]]; then channel=testing; else channel=latest; fi
+          else
+            version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' PuppetMaster/PuppetMasterKK/PuppetMasterKK.csproj)
+            channel=none
+          fi
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version '$version' must look like 8.0.0.0"; exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        working-directory: PuppetMaster
+        run: dotnet build PuppetMasterKK.sln -c Release -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Test
+        working-directory: PuppetMaster
+        run: dotnet run --project PuppetMasterKK.Tests -c Release --no-build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PuppetMasterKK-${{ steps.version.outputs.version }}
+          path: PuppetMaster/bin/Release/PuppetMasterKK/latest.zip
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      CHANNEL: ${{ needs.build.outputs.channel }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: PuppetMasterKK-${{ needs.build.outputs.version }}
+
+      # The "## 8.0.0.0" section of CHANGELOG.md, up to the next "## ". A release without one fails here.
+      - name: Changelog
+        run: |
+          awk -v v="$VERSION" '
+            $0 ~ "^## " { if (found) exit; if ($2 == v) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error::CHANGELOG.md has no '## $VERSION' section"; exit 1
+          fi
+
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=()
+          if [ "$CHANNEL" = testing ]; then flags+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" latest.zip --title "PuppetMasterKK $VERSION" --notes-file notes.md "${flags[@]}"
+
+      - name: Upload to repo.etheirys.io
+        env:
+          ETHEIRYS_CI_TOKEN: ${{ secrets.ETHEIRYS_CI_TOKEN }}
+        run: |
+          if [ -z "$ETHEIRYS_CI_TOKEN" ]; then echo "::error::The ETHEIRYS_CI_TOKEN secret isn't set"; exit 1; fi
+          extra=()
+          if [ "$CHANNEL" = latest ]; then extra+=(--form-string "applicable_version=any"); fi
+          curl --fail-with-body -sS \
+            -H "Authorization: Bearer $ETHEIRYS_CI_TOKEN" \
+            -F "plugin=@latest.zip" \
+            --form-string "changelog=$(cat notes.md)" \
+            "${extra[@]}" \
+            "https://repo.etheirys.io/api/ci/plugin/puppetmasterkk/upload/$CHANNEL"
