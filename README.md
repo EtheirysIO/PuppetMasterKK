@@ -61,14 +61,15 @@ These are ideas, not promises. Plans may change as they are tested.
 ```text
 git clone --recursive <this repository>
 dotnet build PuppetMasterKK.sln -c Release
-dotnet run --project tests/PuppetMasterKK.Tests -c Release
+dotnet run --project PuppetMasterKK.Tests -c Release
 ```
 
 The UI comes from the phys1ksUI kit, compiled in as source: it must sit next to this repository (`..\phys1ksUI`).
 
 | Folder | What's in it |
 | --- | --- |
-| `src/PuppetMasterKK` | The plugin: `Chat` (matching, sender and command rules, running reactions), `Config` (settings and upgrades), `Emotes` (emote replies), `Diagnostics` (message log, activity), `UI` (the window). |
-| `tests/PuppetMasterKK.Tests` | A console test runner for everything that doesn't need the game, with sample old configs in `TestConfigs`. |
+| `PuppetMasterKK` | The plugin: `Chat` (matching, sender and command rules, running reactions), `Config` (settings and upgrades), `Emotes` (emote replies), `Diagnostics` (message log, activity), `UI` (the window). |
+| `PuppetMasterKK.Tests` | A console test runner for everything that doesn't need the game, with sample old configs in `TestConfigs`. |
 | `lib/ECommons` | ECommons (git submodule). |
 | `docs` | The user guide. |
+| `bin` | Build output (not in git): `bin\Release\PuppetMasterKK.dll`, and the release zip in `bin\Release\PuppetMasterKK\latest.zip`. |
