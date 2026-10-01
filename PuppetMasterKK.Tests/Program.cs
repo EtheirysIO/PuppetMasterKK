@@ -1309,8 +1309,22 @@ static void RunFollowTests()
         Assert(PathSmoothing.TrimBehind([new(-2, 0, 0)], start, heading).Count == 1, "the destination is never dropped");
     }
 
-    FollowRequest Parse(string message, string call = "Ami", string follow = "follow", string stop = "stop", string come = "come")
-        => FollowParser.Parse(ReactionCommandMatcher.SanitizeIncoming(message), call, follow, stop, come);
+    FollowRequest Parse(string message, string call = "Ami", string follow = "follow", string stop = "stop", string come = "come",
+                        string mimic = "mimic")
+        => FollowParser.Parse(ReactionCommandMatcher.SanitizeIncoming(message), call, follow, stop, come, mimic);
+
+    Assert(Parse("Ami mimic me") == new FollowRequest(FollowRequestKind.Mimic, "") &&
+           Parse("Ami, mimic Nova!") == new FollowRequest(FollowRequestKind.Mimic, "Nova") &&
+           Parse("Ami mimic").Kind == FollowRequestKind.None && Parse("Ami mimic me", mimic: "").Kind == FollowRequestKind.None,
+        "mimic needs a player or \"me\", and no mimic word means no mimic requests");
+    {
+        string Canon(string command) => command.Trim().ToLowerInvariant();
+        var overrides = new List<EmoteOverride> { new() { When = "/Dote", Reply = "/joy" }, new() { When = "/slap", Reply = "" } };
+        Assert(EmoteReplySettings.ReplyFor(overrides, "/dote", Canon) == "/joy" &&
+               EmoteReplySettings.ReplyFor(overrides, "/slap", Canon) == "" &&
+               EmoteReplySettings.ReplyFor(overrides, "/wave", Canon) == "/wave",
+            "an override replaces the reply (empty: no reply); other emotes are answered in kind");
+    }
 
     Assert(Parse("Ami follow").Kind == FollowRequestKind.None && Parse("Ami follow!").Kind == FollowRequestKind.None,
         "a bare \"Ami follow\" names nobody, so it isn't a request");

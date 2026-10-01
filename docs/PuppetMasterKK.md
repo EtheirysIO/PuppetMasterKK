@@ -250,6 +250,7 @@ This also clears waiting requests. **Cancel** in the sidebar stops every trigger
 - **Channels** picks where it listens (Tell, Party and Free Company to start). **Who can trigger it** works as it does for triggers, and **Never take requests from** blocks people outright.
 - **Who you'll follow**: when **Only follow** has names, only they are followed; **Never follow** always wins.
 - `Ami stop` stops every trigger (running or waiting). With **Also stand still** on, it takes one tiny `/automove` step, which ends following, emote loops, sitting and lying down, leaving you standing. **Then run** adds your own commands after that.
+- **Mimic**: `Ami mimic me` (or `Ami mimic Nova`) makes you copy that player's emotes until the stop word. When they emote at someone, you target the same person and do the same emote; when they emote at you, you emote back at them; when they emote at nobody, you clear your target and emote too. Only emotes are copied, only from a player close enough to see, and not during combat. **Mimic word** (`mimic`) can be changed; leave it empty to turn mimicking off. **Hide emote text** is on to start. If two players mimic each other, the same emote coming straight back within 3 seconds isn't copied again, so they don't loop.
 - A line Follow mode takes isn't also matched by your triggers.
 
 ## Emote replies
@@ -259,7 +260,8 @@ This also clears waiting requests. **Cancel** in the sidebar stops every trigger
 - **Target them first** targets the player so the emote is aimed back at them.
 - **Hide emote text** plays the animation without the chat line.
 - **Wait before answering the same player again** (10 seconds by default, at least 3) stops two players who both answer emotes from emoting at each other forever.
-- **Never answer with** lists emotes that are never copied back (sitting, lounging and dozing by default, so nobody can make you lie down).
+- **Never reply with** lists emotes that are never sent back (sitting, lounging and dozing by default, so nobody can make you lie down).
+- **Reply with a different emote** answers one emote with another, such as `/dote` → `/joy`. Leave the reply empty to not answer that emote at all. **Never reply with** still applies to the reply.
 - Replies pause while you're in combat, so your target never changes mid-fight.
 - **Who can trigger it** works as it does for triggers.
 

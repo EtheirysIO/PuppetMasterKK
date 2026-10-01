@@ -114,7 +114,7 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
             page = Page.EmoteReplies;
         var followSubtitle = !Config.Follow.Enabled ? "Off" : FollowMode.Following is { } following
             ? (FollowNavigator.IsWalking ? $"Walking to {following}" : $"Following {following}")
-            : "On";
+            : MimicMode.Leader is { } mimicked ? $"Mimicking {mimicked.Name}" : "On";
         if (W.NavRow("follow", FontAwesomeIcon.Walking, "Follow mode", page == Page.Follow, followSubtitle))
             page = Page.Follow;
         var running = activity.Active.Length;

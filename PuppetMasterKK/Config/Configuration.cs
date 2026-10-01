@@ -111,9 +111,29 @@ namespace PuppetMasterKK
         // Emotes never answered (postures that stick: a stranger shouldn't be able to make you lie down).
         [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
         public List<string> BlockedEmotes { get; set; } = ["/sit", "/groundsit", "/lounge", "/doze"];
+        // "When they use this emote on me, reply with that one instead". An empty reply means don't reply.
+        public List<EmoteOverride> Overrides { get; set; } = [];
+
+        // The emote to answer `command` with: its override (empty: don't answer), or the same emote.
+        public static string ReplyFor(IReadOnlyList<EmoteOverride> overrides, string command, Func<string, string> canonicalize)
+        {
+            var canonical = canonicalize(command);
+            foreach (var entry in overrides)
+            {
+                if (entry != null && !string.IsNullOrWhiteSpace(entry.When) && canonicalize(entry.When.Trim()) == canonical)
+                    return (entry.Reply ?? string.Empty).Trim();
+            }
+            return command;
+        }
 
         // Below this, two players who both answer emotes would keep answering each other.
         public const int MinimumCooldownSeconds = 3;
+    }
+
+    public class EmoteOverride
+    {
+        public string When { get; set; } = string.Empty;
+        public string Reply { get; set; } = string.Empty;
     }
 
     // Follow mode: "<call name> <follow word> [player]" makes you target that player (or the sender) and /follow them;
@@ -131,6 +151,9 @@ namespace PuppetMasterKK
         public string ComeWords { get; set; } = "come";
         // When the player is in the zone but too far to follow, walk to them with vnavmesh first (when it's loaded).
         public bool WalkWithVnavmesh { get; set; } = true;
+        // "Ami mimic me": copy that player's emotes, aimed at whoever they aim them at, until the stop word.
+        public string MimicWords { get; set; } = "mimic";
+        public bool MimicMotionOnly { get; set; } = true;
         // Tell, Party, Free Company.
         [JsonProperty(ObjectCreationHandling = ObjectCreationHandling.Replace)]
         public List<int> Channels { get; set; } = [13, 14, 24];

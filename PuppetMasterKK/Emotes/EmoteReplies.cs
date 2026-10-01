@@ -9,7 +9,8 @@ using System.Diagnostics;
 
 namespace PuppetMasterKK;
 
-// Answers an emote aimed at you with the same emote (formerly the separate "Right Back At You" plugin).
+// Answers an emote aimed at you with the same emote, or the one set to replace it (formerly the separate "Right Back
+// At You" plugin). The same hook feeds Mimic mode: the leader's emotes, whoever they're aimed at.
 //
 // The hook only notes what happened and always calls the original: everything else (looking the player up, the
 // sender filter, targeting, sending the emote) runs on the next framework tick, where an exception can't crash the
@@ -55,13 +56,15 @@ internal sealed class EmoteReplies : IDisposable
     {
         try
         {
-            if (!disposed && Service.configuration?.EmoteReplies.Enabled == true && instigatorAddress != 0)
+            var replying = Service.configuration?.EmoteReplies.Enabled == true;
+            var mimicking = MimicMode.IsActive;
+            if (!disposed && (replying || mimicking) && instigatorAddress != 0)
             {
                 var local = Service.ObjectTable.LocalPlayer;
-                if (local != null && targetId == local.GameObjectId)
+                if (local != null && (mimicking || targetId == local.GameObjectId))
                 {
                     var address = (nint)instigatorAddress;
-                    _ = Service.Framework.RunOnTick(() => Reply(address, emoteId));
+                    _ = Service.Framework.RunOnTick(() => Handle(address, emoteId, targetId));
                 }
             }
         }
@@ -76,12 +79,12 @@ internal sealed class EmoteReplies : IDisposable
         }
     }
 
-    private void Reply(nint instigatorAddress, ushort emoteId)
+    private void Handle(nint instigatorAddress, ushort emoteId, ulong targetId)
     {
         try
         {
             var settings = Service.configuration?.EmoteReplies;
-            if (disposed || settings == null || !settings.Enabled)
+            if (disposed || settings == null)
                 return;
             // Never mid-fight: answering would change your target.
             if (Service.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.InCombat])
@@ -103,7 +106,18 @@ internal sealed class EmoteReplies : IDisposable
                 return;
 
             var sender = SenderResolver.FromCharacter(instigator);
-            if (!settings.Senders.Allows(sender))
+            var command = EmoteCommand(emoteId);
+            // An emote with no text command has nothing to send (sending "" or " motion" would post plain chat).
+            if (command == null)
+                return;
+
+            // The player we're mimicking: copy it (this also covers their emotes aimed at us).
+            if (MimicMode.IsLeader(sender))
+            {
+                MimicMode.Copy(instigator, command, targetId);
+                return;
+            }
+            if (!settings.Enabled || targetId != local.GameObjectId || !settings.Senders.Allows(sender))
                 return;
 
             // Per-player cooldown: two players who both reply to emotes stop after one round.
@@ -112,10 +126,9 @@ internal sealed class EmoteReplies : IDisposable
             if (nextReply.TryGetValue(key, out var allowedAt) && now < allowedAt)
                 return;
 
-            var command = Service.DataManager.GetExcelSheet<Emote>()
-                .GetRowOrDefault(emoteId)?.TextCommand.ValueNullable?.Command.ExtractText();
-            // An emote with no text command has nothing to send (sending "" or " motion" would post plain chat).
-            if (string.IsNullOrWhiteSpace(command) || !command.StartsWith('/'))
+            // Replaced by another emote, or not answered at all.
+            command = EmoteReplySettings.ReplyFor(settings.Overrides, command, Service.Commands.Canonicalize);
+            if (command.Length == 0 || !command.StartsWith('/') || !Service.Commands.IsEmote(command))
                 return;
             var canonical = Service.Commands.Canonicalize(command);
             foreach (var blockedEmote in settings.BlockedEmotes)
@@ -139,6 +152,13 @@ internal sealed class EmoteReplies : IDisposable
         {
             Service.PluginLog.Error(ex, "Emote reply failed.");
         }
+    }
+
+    private static string? EmoteCommand(ushort emoteId)
+    {
+        var command = Service.DataManager.GetExcelSheet<Emote>()
+            .GetRowOrDefault(emoteId)?.TextCommand.ValueNullable?.Command.ExtractText();
+        return string.IsNullOrWhiteSpace(command) || !command.StartsWith('/') ? null : command;
     }
 
     private void PruneCooldowns(long now)

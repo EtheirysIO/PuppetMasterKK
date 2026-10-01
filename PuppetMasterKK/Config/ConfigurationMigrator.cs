@@ -157,6 +157,12 @@ public static class ConfigurationMigrator
             configuration.EmoteReplies.Senders = new SenderFilter();
             changed = true;
         }
+        if (configuration.EmoteReplies.Overrides == null)
+        {
+            configuration.EmoteReplies.Overrides = [];
+            changed = true;
+        }
+        changed |= RemoveNullEntries(configuration.EmoteReplies.Overrides);
         if (configuration.EmoteReplies.Senders.Named == null)
         {
             configuration.EmoteReplies.Senders.Named = [];

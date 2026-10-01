@@ -10,6 +10,8 @@ internal enum FollowRequestKind
     Follow,
     // Come to the sender, wherever they are in the zone.
     Come,
+    // Copy a player's emotes (Target empty: the sender).
+    Mimic,
     Stop,
 }
 
@@ -34,15 +36,18 @@ internal static class FollowParser
     private static string cachedKey = "\u0000";
     private static Regex? followPattern;
     private static Regex? comePattern;
+    private static Regex? mimicPattern;
     private static Regex? stopPattern;
 
-    public static FollowRequest Parse(string message, string callNames, string followWords, string stopWords, string comeWords = "")
+    public static FollowRequest Parse(string message, string callNames, string followWords, string stopWords, string comeWords = "",
+                                      string mimicWords = "")
     {
-        var key = callNames + "\u0001" + followWords + "\u0001" + stopWords + "\u0001" + comeWords;
+        var key = callNames + "\u0001" + followWords + "\u0001" + stopWords + "\u0001" + comeWords + "\u0001" + mimicWords;
         if (key != cachedKey)
         {
             followPattern = BuildPattern(callNames, followWords, withTarget: true);
             comePattern = BuildPattern(callNames, comeWords, withTarget: false);
+            mimicPattern = BuildPattern(callNames, mimicWords, withTarget: true);
             stopPattern = BuildPattern(callNames, stopWords, withTarget: false);
             cachedKey = key;
         }
@@ -53,18 +58,25 @@ internal static class FollowParser
                 return new FollowRequest(FollowRequestKind.Stop, string.Empty);
             if (comePattern?.IsMatch(message) == true)
                 return new FollowRequest(FollowRequestKind.Come, string.Empty);
-            var match = followPattern?.Match(message);
-            if (match is { Success: true })
-            {
-                var named = match.Groups["target"].Value.Trim().TrimEnd('.', '!', '?', '~', ',').Trim();
-                if (named.Length > 0)
-                    return new FollowRequest(FollowRequestKind.Follow, CleanTarget(named));
-            }
+            if (Named(mimicPattern, message) is { } mimicked)
+                return new FollowRequest(FollowRequestKind.Mimic, mimicked);
+            if (Named(followPattern, message) is { } followed)
+                return new FollowRequest(FollowRequestKind.Follow, followed);
         }
         catch (RegexMatchTimeoutException)
         {
         }
         return FollowRequest.None;
+    }
+
+    // The player a "<call> <word> <player|me>" line names ("" for me), or null when it names nobody.
+    private static string? Named(Regex? pattern, string message)
+    {
+        var match = pattern?.Match(message);
+        if (match is not { Success: true })
+            return null;
+        var named = match.Groups["target"].Value.Trim().TrimEnd('.', '!', '?', '~', ',').Trim();
+        return named.Length > 0 ? CleanTarget(named) : null;
     }
 
     // "<call> <word>" anywhere in the line, the call and the word as whole words, a little punctuation allowed between

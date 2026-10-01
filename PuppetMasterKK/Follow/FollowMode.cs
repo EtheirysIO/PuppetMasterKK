@@ -30,6 +30,7 @@ internal static class FollowMode
     public static void Reset()
     {
         FollowNavigator.Cancel();
+        MimicMode.Stop();
         NextReply.Clear();
         NextStop.Clear();
         Following = null;
@@ -44,7 +45,8 @@ internal static class FollowMode
             return false;
 
         var text = ReactionCommandMatcher.SanitizeIncoming(message.ToString());
-        var request = FollowParser.Parse(text, settings.CallNames, settings.FollowWords, settings.StopWords, settings.ComeWords);
+        var request = FollowParser.Parse(text, settings.CallNames, settings.FollowWords, settings.StopWords, settings.ComeWords,
+                                         settings.MimicWords);
         if (request.Kind == FollowRequestKind.None)
             return false;
 
@@ -59,6 +61,8 @@ internal static class FollowMode
 
         if (request.Kind == FollowRequestKind.Stop)
             Stop(who, settings);
+        else if (request.Kind == FollowRequestKind.Mimic)
+            Mimic(who, request.Target, settings);
         else
             Follow(who, request.Target, settings);
         return true;
@@ -110,6 +114,42 @@ internal static class FollowMode
             return;
         }
         TargetAndFollow(target.Character, target.Name.Name);
+    }
+
+    // "Ami mimic me" / "Ami mimic Nova": from now on, copy that player's emotes.
+    private static void Mimic(SenderInfo who, string targetText, FollowSettings settings)
+    {
+        PlayerName leader;
+        if (targetText.Length == 0)
+        {
+            leader = new PlayerName(who.Name, who.World);
+        }
+        else
+        {
+            // A named player has to be around (their emotes are only seen nearby anyway).
+            var local = Service.ObjectTable.LocalPlayer;
+            if (local == null)
+                return;
+            var candidates = Candidates(local);
+            var names = new List<PlayerName>(candidates.Count);
+            foreach (var candidate in candidates)
+                names.Add(candidate.Name);
+            var index = FollowParser.FindNearby(FollowParser.SplitName(targetText), names);
+            if (index < 0)
+            {
+                ReplyNotNearby(who, targetText, settings);
+                return;
+            }
+            leader = candidates[index].Name;
+        }
+        if (leader.Name.Length == 0)
+            return;
+        if (!FollowParser.MayFollow(leader, settings.OnlyFollow, settings.NeverFollow))
+        {
+            Service.PluginLog.Information("Not mimicking {Leader}: blocked by the follow lists.", leader.Name);
+            return;
+        }
+        MimicMode.Start(leader);
     }
 
     // Players we could follow: everyone around, plus party members elsewhere in the zone (by their map position).
@@ -222,6 +262,7 @@ internal static class FollowMode
         foreach (var reaction in Service.configuration!.Reactions)
             ChatHandler.CancelReaction(reaction);
         FollowNavigator.Cancel();
+        MimicMode.Stop();
         Following = null;
 
         // Stop is never rate limited: it's how you get your character back.
