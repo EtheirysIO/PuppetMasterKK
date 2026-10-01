@@ -58,8 +58,7 @@ internal sealed partial class MainWindow
                 Config.IgnoreOwnMessages = ignoreOwn;
                 Changed();
             }
-            Hint("Your own chat lines never set off a trigger. Keeps a trigger that posts to chat from setting itself off " +
-                 "over and over. Turn off only to test triggers on yourself.");
+            Hint("Your own chat messages never trigger anything. This stops a trigger that posts in chat from triggering itself over and over. Turn this off only to test triggers on yourself.");
         }
 
         using (W.Card("notificationDefaults", "Notifications", "Triggers set to Default use these"))
@@ -73,7 +72,7 @@ internal sealed partial class MainWindow
             Gap(2f);
             var suppressed = Config.ShowSuppressedReactionNotifications;
             if (W.Toggle("When a trigger is ignored##showSuppressed", ref suppressed,
-                         tooltip: "Shown at most every few seconds, when a trigger is busy or cooling down"))
+                         tooltip: "When a trigger is busy or on cooldown. Shown at most once every few seconds."))
             {
                 Config.ShowSuppressedReactionNotifications = suppressed;
                 Changed();
@@ -83,7 +82,7 @@ internal sealed partial class MainWindow
         using (W.Card("help", "Commands"))
         {
             Hint("/pmkk (or /puppetmasterkk) opens this window. /pmkk on|off [name] turns every trigger (or the named ones) " +
-                 "on or off. /pmkk logging on|off|clear|save controls the message log, and /pmkk viz opens Activity.");
+                 "on or off. /pmkk logging on|off|clear|save controls the message log, and /pmkk viz opens the Activity page.");
         }
     }
 
@@ -144,8 +143,7 @@ internal sealed partial class MainWindow
     {
         using (W.Card("customChannels", "Custom channels"))
         {
-            W.TextWrapped("Chat log types the game uses but Dalamud doesn't name. Find their numbers with the message log " +
-                          "(the # button on a row adds one here).", Theme.Dim);
+            W.TextWrapped("Chat channels the game uses that Dalamud doesn't have a name for. Find their numbers in the message log; the # button on a message adds its channel here.", Theme.Dim);
             Gap();
 
             var remove = -1;
@@ -291,7 +289,7 @@ internal sealed partial class MainWindow
                           Theme.Ink);
             Centered("- phys1ks", Theme.Dim);
             Gap(8f);
-            Centered("Continues DodingDaga's Puppet Master (emote replies began as Right Back At You).", Theme.Faint);
+            Centered("Based on DodingDaga's Puppet Master. Emote replies come from Right Back At You.", Theme.Faint);
             const string originalRepo = "https://github.com/dodingdaga/DalamudPlugins";
             var linkWidth = ImGui.CalcTextSize(originalRepo).X;
             ImGui.SetCursorPosX(ImGui.GetCursorPosX() + System.MathF.Max(0f, (W.Avail() - linkWidth) * 0.5f));

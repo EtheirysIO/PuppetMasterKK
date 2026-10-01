@@ -17,8 +17,7 @@ internal sealed partial class MainWindow
 
         using (W.Card("follow", "Follow mode", settings.Enabled ? "On" : "Off"))
         {
-            W.TextWrapped("Someone you trust says your call name and the follow word, and you follow them, or the player they " +
-                          "name. The stop word stops everything.", Theme.Dim);
+            W.TextWrapped("When someone you trust says your call name and the follow word, you follow them, or the player they name. The stop word stops everything.", Theme.Dim);
             Gap();
             var enabled = settings.Enabled;
             if (W.Toggle("Answer follow requests##followOn", ref enabled))
@@ -35,7 +34,7 @@ internal sealed partial class MainWindow
                 settings.CallNames = callNames;
                 Changed();
             }
-            Hint("What people call you. Separate several with |, e.g. Ami|Kitty.");
+            Hint("The name people use to get your attention. Separate multiple names with |, e.g. Ami|Kitty.");
 
             Gap();
             Label("Follow word");
@@ -57,14 +56,14 @@ internal sealed partial class MainWindow
             var follow = FirstAlternative(settings.FollowWords, "follow");
             var stop = FirstAlternative(settings.StopWords, "stop");
             Gap(2f);
-            Hint($"\"{call} {follow}\" follows whoever said it. \"{call} {follow} Nova Ral'veth@Exodus\" (or just \"Nova\", if " +
-                 $"only one Nova is nearby) follows that player. \"{call} {stop}\" stops.");
+            Hint($"\"{call} {follow}\" makes you follow whoever said it. \"{call} {follow} Nova Ral'veth@Exodus\" (or just \"Nova\", if " +
+                 $"only one Nova is nearby) makes you follow that player. \"{call} {stop}\" stops everything.");
         }
 
         var count = settings.Channels.Count;
         using (W.Card("followChannels", "Channels", count == 1 ? "1 picked" : $"{count} picked"))
         {
-            DrawChannelChips(settings.Channels, "Follow mode isn't listening anywhere yet.");
+            DrawChannelChips(settings.Channels, "Follow mode isn't listening to any channels yet.");
             Gap(2f);
             if (W.SecondaryButton("Pick channels##pickFollowChannels"))
                 OpenChannelPicker("Channels for Follow mode", settings.Channels, null);
@@ -92,7 +91,7 @@ internal sealed partial class MainWindow
                 Changed();
         }
 
-        using (W.Card("notNearby", "When they're not nearby"))
+        using (W.Card("notNearby", "When the player isn't nearby"))
         {
             var reply = settings.ReplyWhenNotNearby;
             if (W.Toggle("Reply by tell##replyNotNearby", ref reply))
@@ -109,7 +108,7 @@ internal sealed partial class MainWindow
                     settings.NotNearbyMessage = message;
                     Changed();
                 }
-                Hint("<target> becomes the name they asked for. At most one reply to the same person every 10 seconds.");
+                Hint("<target> is replaced with the name they asked for. Replies to the same person at most once every 10 seconds.");
             }
         }
 
@@ -119,14 +118,14 @@ internal sealed partial class MainWindow
             Gap(2f);
             var moves = settings.StopMoves;
             if (W.Toggle("Also stand still##stopMoves", ref moves,
-                         tooltip: "Takes one tiny automove step: moving ends following, emotes, sitting and lying down"))
+                         tooltip: "Takes one tiny step forward with automove. Moving cancels following, emotes, sitting and lying down."))
             {
                 settings.StopMoves = moves;
                 Changed();
             }
             Gap();
-            W.Heading("Then run");
-            if (StringListEditor("stopCommands", settings.StopCommands, ref stopCommandInput, "/command", "Nothing else.",
+            W.Heading("Then also run");
+            if (StringListEditor("stopCommands", settings.StopCommands, ref stopCommandInput, "/command", "No extra commands.",
                                  input => PluginUiLogic.AddCommandRule(settings.StopCommands, [], input)))
                 Changed();
         }

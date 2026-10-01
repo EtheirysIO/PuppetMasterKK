@@ -18,7 +18,7 @@ internal sealed partial class MainWindow
 
         using (W.Card("emoteReplies", "Emote replies", settings.Enabled ? "On" : "Off"))
         {
-            W.TextWrapped("When someone uses an emote on you, answer with the same emote. (This was the Right Back At You plugin.)", Theme.Dim);
+            W.TextWrapped("When someone uses an emote on you, do the same emote back. (This used to be the Right Back At You plugin.)", Theme.Dim);
             Gap();
             var enabled = settings.Enabled;
             // Can always be turned off, even while unavailable.
@@ -37,7 +37,7 @@ internal sealed partial class MainWindow
             Gap(2f);
             var motionOnly = settings.MotionOnly;
             if (W.Toggle("Hide emote text##replyMotionOnly", ref motionOnly,
-                         tooltip: "The animation plays, but the emote's chat line isn't posted"))
+                         tooltip: "The animation still plays, but the emote message isn't posted in chat"))
             {
                 settings.MotionOnly = motionOnly;
                 Changed();
@@ -51,10 +51,10 @@ internal sealed partial class MainWindow
                 settings.PerPlayerCooldownSeconds = cooldown;
                 Changed();
             }
-            Hint("Stops two players who both answer emotes from emoting at each other forever. Replies pause while you're in combat.");
+            Hint("Keeps two players who both auto-reply from emoting at each other forever. Replies are paused during combat.");
 
             Gap();
-            W.Heading("Never answer with");
+            W.Heading("Never reply with");
             if (StringListEditor("blockedEmotes", settings.BlockedEmotes, ref blockedEmoteInput, "/emote", "Nothing blocked.",
                                  input => PluginUiLogic.AddCommandRule(settings.BlockedEmotes, [], input)))
                 Changed();

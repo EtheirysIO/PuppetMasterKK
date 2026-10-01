@@ -123,9 +123,9 @@ Each trigger chooses who can set it off:
 - **Party and alliance** — your party and alliance, and their chat channels.
 - **Also these players** — named players, as `Name@World`, or just `Name` for any world.
 
-New triggers start with Friends, Free Company and Party. Triggers from before this option existed were set to **Anyone**, so they keep working as they did; review them. A trigger that **Anyone** can trigger from a public channel (Say, Shout, Yell, Tell, Party, Alliance, Novice Network, the emote channels or a cross-world linkshell) shows a warning, because strangers can trigger it.
+New triggers start with Friends, Free Company and Party. Triggers from before this option existed were set to **Anyone**, so they keep working as they did; review them. A trigger that **Anyone** can trigger in a public channel (Say, Yell, Shout, Tell, Party, Alliance or a cross-world linkshell) shows a warning, because strangers can trigger it.
 
-Your own chat lines never set off a trigger (**Settings → General → Ignore my own messages**).
+Your own chat messages never trigger anything (**Settings → General → Ignore my own messages**).
 
 ## Command rules
 

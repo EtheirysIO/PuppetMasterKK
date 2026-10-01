@@ -77,7 +77,7 @@ internal sealed partial class MainWindow
         {
             var capture = Config.DebugLogTypes;
             if (W.Toggle("Capture messages##capture", ref capture,
-                         tooltip: "Record every chat line with its channel number and sender, for this session only"))
+                         tooltip: "Record every chat message with its channel number and sender (this session only)"))
                 Config.DebugLogTypes = capture;
             ImGui.SameLine(0f, Theme.S(24f));
             W.Toggle("Color by channel##colorLogs", ref colorLogs);

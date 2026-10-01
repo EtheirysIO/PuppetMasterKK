@@ -434,18 +434,18 @@ static void RunPluginUiLogicTests()
            PluginUiLogic.NotificationSettingLabels[(int)ReactionNotificationSetting.Disabled] == "Hide",
         "notification radio groups should map every persisted enum value to the matching UI label");
     Assert(PluginUiLogic.GetExecutionPolicyDescription(ReactionExecutionPolicy.QueueEveryTrigger)
-               .Contains("up to 16 waiting") &&
+               .Contains("up to 16 can wait") &&
            PluginUiLogic.GetExecutionPolicyDescription(ReactionExecutionPolicy.QueueLatestTrigger)
                .Contains("newest request") &&
            PluginUiLogic.GetExecutionPolicyDescription(ReactionExecutionPolicy.RestartImmediately)
-               .Contains("Stops the remaining steps") &&
+               .Contains("starts over with the new request") &&
            PluginUiLogic.GetExecutionPolicyDescription(ReactionExecutionPolicy.IgnoreWhileRunning)
                .Contains("Ignores the new message"),
         "repeat-behavior choices should use clear user-facing descriptions");
     Assert(PluginUiLogic.GetCooldownDescription(ReactionExecutionPolicy.RestartImmediately)
-               .Contains("Cooldown does not apply") &&
+               .Contains("Cooldown doesn't apply") &&
            PluginUiLogic.GetCooldownDescription(ReactionExecutionPolicy.QueueLatestTrigger)
-               .Contains("Minimum time between starts"),
+               .Contains("minimum time between runs"),
         "repeat-behavior editor should clearly explain cooldown behavior");
 
     Assert(PluginUiLogic.NormalizeCommand(" echo hello ") == "/echo", "command input should normalize to its lowercase command name");

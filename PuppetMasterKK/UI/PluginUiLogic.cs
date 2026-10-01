@@ -133,9 +133,9 @@ internal static class PluginUiLogic
     {
         return policy switch
         {
-            ReactionExecutionPolicy.QueueEveryTrigger => "Runs every request afterward (up to 16 waiting).",
-            ReactionExecutionPolicy.QueueLatestTrigger => "Keeps only the newest request.",
-            ReactionExecutionPolicy.RestartImmediately => "Stops the remaining steps and reacts again immediately.",
+            ReactionExecutionPolicy.QueueEveryTrigger => "Runs each new request after the current one finishes (up to 16 can wait).",
+            ReactionExecutionPolicy.QueueLatestTrigger => "Keeps only the newest request and runs it when the current one finishes.",
+            ReactionExecutionPolicy.RestartImmediately => "Stops the current run and starts over with the new request.",
             _ => "Ignores the new message while this trigger is busy.",
         };
     }
@@ -143,8 +143,8 @@ internal static class PluginUiLogic
     public static string GetCooldownDescription(ReactionExecutionPolicy policy)
     {
         return IgnoresCooldown(policy)
-            ? "Cooldown does not apply with Restart immediately."
-            : "Minimum time between starts. The current run must also finish first.";
+            ? "Cooldown doesn't apply to Restart immediately."
+            : "The minimum time between runs. A new run also waits for the current one to finish.";
     }
 
     public static void SetReactionEnabled(Reaction reaction, bool enabled, Action<Reaction>? cancel = null)
@@ -289,7 +289,7 @@ internal static class PluginUiLogic
         if (channelId < ushort.MinValue || channelId > ushort.MaxValue)
             return $"Channel ID must be between {ushort.MinValue} and {ushort.MaxValue}.";
         if (isOfficial(channelId))
-            return "Official Dalamud channel IDs do not belong in Custom Channels.";
+            return "That ID is already a built-in channel.";
         if (customChannels.Any(candidate => !ReferenceEquals(candidate, channel) && candidate.ChatType == channelId))
             return "Another custom channel already uses this ID.";
         return null;

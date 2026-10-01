@@ -124,7 +124,7 @@ internal sealed partial class MainWindow
                 {
                     ReactionUiStatus.Disabled => (FontAwesomeIcon.CommentSlash, "Off"),
                     ReactionUiStatus.Ready => (FontAwesomeIcon.Comment, "On"),
-                    ReactionUiStatus.Unsafe => (FontAwesomeIcon.ExclamationTriangle, "On · anyone in public"),
+                    ReactionUiStatus.Unsafe => (FontAwesomeIcon.ExclamationTriangle, "On · open to anyone"),
                     ReactionUiStatus.NoProtections => (FontAwesomeIcon.ExclamationTriangle, "On · no protections"),
                     ReactionUiStatus.NoChannels => (FontAwesomeIcon.ExclamationTriangle, "No channels"),
                     _ => (FontAwesomeIcon.ExclamationTriangle, "Trigger not valid"),
@@ -214,9 +214,7 @@ internal sealed partial class MainWindow
                           allowAllTarget == null
                               ? "Let new triggers run any game command that isn't blocked?"
                               : "Let this trigger run any game command that isn't blocked?", "Allow",
-                          detail: "Chat commands, other plugins' commands and ones like teleporting or leaving the party still " +
-                                  "have to be listed one by one, and /logout, /shutdown, /follow (that's Follow mode), /pmkk and /xl… never run. Use this only " +
-                                  "with senders and channels you trust."))
+                          detail: "Chat commands, other plugins' commands, and commands like teleporting or leaving the party still have to be allowed one at a time. /logout, /shutdown, /follow (use Follow mode instead), /pmkk and /xl commands never run. Only use this with senders and channels you trust."))
         {
             if (allowAllTarget != null)
             {
@@ -234,8 +232,7 @@ internal sealed partial class MainWindow
 
         if (Modal.Confirm("Turn off every protection?##noProtections1", ref confirmNoProtections,
                           "Turn off every protection for this trigger?", "Continue", danger: true,
-                          detail: "Anyone who can set it off could log you out, close the game, teleport you, post anything in " +
-                                  "any chat, and run any plugin's commands. Only its own Blocked list still applies."))
+                          detail: "Anyone who can trigger it could log you out, close the game, teleport you, post anything in any chat channel, and run any plugin's commands. Only this trigger's Blocked list still applies."))
         {
             noProtectionsUnderstood = false;
             confirmNoProtectionsAgain = true;
@@ -269,8 +266,7 @@ internal sealed partial class MainWindow
         DrawTriggerCard(reaction);
         DrawSendersCard("reactionSenders", reaction.Senders, () => RulesChanged(reaction),
                         PluginUiLogic.ListensToStrangers(reaction)
-                            ? "Anyone who can talk in a public channel you picked (Say, Shout, Yell, Tell, Party, Novice Network, " +
-                              "cross-world linkshells…) can set off this trigger."
+                            ? "Anyone in the channels you picked can trigger this, including strangers in Say, Yell, Shout and cross-world linkshells."
                             : null);
         DrawChannelsCard(reaction);
         DrawCommandsCard(reaction);
@@ -301,8 +297,7 @@ internal sealed partial class MainWindow
                     reaction.TriggerPhrase = phrase;
                     TriggerChanged(reaction);
                 }
-                Hint("Reacts to the phrase followed by a command in brackets or a single word: \"please do (dance)\" or " +
-                     "\"please do wave\". Separate several phrases with |.");
+                Hint("Reacts to the phrase followed by a command, either in parentheses or as a single word: \"please do (dance)\" or \"please do wave\". Separate multiple phrases with |.");
                 return;
             }
 
@@ -324,9 +319,9 @@ internal sealed partial class MainWindow
                 reaction.ReplaceMatch = replacement;
                 TriggerChanged(reaction);
             }
-            Hint("$1, $2… are the pattern's groups. One command per line; \"/wait 2\" pauses for two seconds.");
+            Hint("One command per line. $1, $2… insert the pattern's capture groups, and \"/wait 2\" pauses for two seconds.");
             Gap(2f);
-            if (W.SecondaryButton("Restore defaults##regexDefaults", tooltip: "Use the pattern and commands the phrase mode would use"))
+            if (W.SecondaryButton("Restore defaults##regexDefaults", tooltip: "Reset the pattern and commands to what phrase mode would use"))
             {
                 PluginUiLogic.EnsureRegexRestoreTrigger(reaction);
                 reaction.CustomPhrase = Service.GetDefaultRegex(selected);
@@ -341,7 +336,7 @@ internal sealed partial class MainWindow
         using (W.Card(id, "Who can trigger it", senders.Describe()))
         {
             var anyone = senders.Anyone;
-            if (W.Toggle("Anyone##anyone", ref anyone, tooltip: "Every player who can talk in the picked channels"))
+            if (W.Toggle("Anyone##anyone", ref anyone, tooltip: "Anyone who can talk in the channels you picked"))
             {
                 senders.Anyone = anyone;
                 // Leaving Anyone with nothing else picked would let nobody trigger it: start from the safe groups.
@@ -355,7 +350,7 @@ internal sealed partial class MainWindow
                 Gap(2f);
                 var friends = senders.Friends;
                 if (W.Toggle("Friends##friends", ref friends,
-                             tooltip: "Players on your friend list (open it once this session) and friends nearby"))
+                             tooltip: "Players on your friend list (open your friend list once each session so the plugin can see it)"))
                 {
                     senders.Friends = friends;
                     changed();
@@ -363,7 +358,7 @@ internal sealed partial class MainWindow
                 FlowSameLine(W.ToggleWidth("Free Company##fc"));
                 var fc = senders.FreeCompany;
                 if (W.Toggle("Free Company##fc", ref fc,
-                             tooltip: "Your FC chat, and FC members the game has listed this session (open the FC member list once)"))
+                             tooltip: "Anyone in FC chat, plus FC members the game has loaded this session (open the FC member list once to load them)"))
                 {
                     senders.FreeCompany = fc;
                     changed();
@@ -414,7 +409,7 @@ internal sealed partial class MainWindow
         {
             var motionOnly = reaction.MotionOnly;
             if (W.Toggle("Hide emote text##motionOnly", ref motionOnly,
-                         tooltip: "The animation still plays, but the emote's chat line isn't posted"))
+                         tooltip: "The animation still plays, but the emote message isn't posted in chat"))
             {
                 reaction.MotionOnly = motionOnly;
                 RulesChanged(reaction);
@@ -452,17 +447,15 @@ internal sealed partial class MainWindow
                 RulesChanged(reaction);
 
             Gap(2f);
-            Hint("Emotes always run unless blocked. Chat commands (say, shout, tell, party, FC…) and other plugins' commands " +
-                 "only run when listed as allowed, and so do teleporting, leaving the party and changing gear. " +
-                 "/logout, /shutdown, /follow (that's Follow mode), /pmkk and /xl… never run.");
+            Hint("Emotes always run unless you block them. Chat commands (/say, /shout, /tell, /party, /fc…), other plugins' commands, and commands like teleporting, leaving the party or changing gear only run if you add them to the Allowed list. /logout, /shutdown, /follow (use Follow mode instead), /pmkk and /xl commands never run.");
         }
     }
 
     private void DrawNoProtectionsSecondConfirm()
     {
         ImGui.PushTextWrapPos(ImGui.GetFontSize() * 26f);
-        ImGui.TextColored(Theme.Ink, $"Last check: \"{(noProtectionsTarget != null ? DisplayName(noProtectionsTarget) : "this trigger")}\" will run any command it's sent.");
-        ImGui.TextColored(Theme.Dim, "You can turn protections back on at any time, and it goes back on its own if you duplicate the trigger.");
+        ImGui.TextColored(Theme.Ink, $"Last check: \"{(noProtectionsTarget != null ? DisplayName(noProtectionsTarget) : "this trigger")}\" will run any command anyone sends it.");
+        ImGui.TextColored(Theme.Dim, "You can turn protections back on at any time. Duplicating this trigger turns them back on for the copy.");
         ImGui.PopTextWrapPos();
         Gap(6f);
         W.Checkbox("I understand that people can make my character do anything##noProtectionsUnderstood", ref noProtectionsUnderstood);
@@ -484,8 +477,7 @@ internal sealed partial class MainWindow
         {
             if (reaction.NoProtections)
             {
-                W.Banner("No protections: anyone who can set off this trigger can make your character run any command, " +
-                         "except this trigger's Blocked list and /follow.", Theme.Negative, icon: FontAwesomeIcon.ExclamationTriangle);
+                W.Banner("Protections are off. Anyone who can trigger this can make your character run any command except /follow and the commands on this trigger's Blocked list.", Theme.Negative, icon: FontAwesomeIcon.ExclamationTriangle);
                 if (W.SecondaryButton("Turn protections back on##protectionsOn"))
                 {
                     reaction.NoProtections = false;
@@ -502,9 +494,8 @@ internal sealed partial class MainWindow
                 RulesChanged(reaction);
             }
             ImGui.SameLine();
-            W.Chip(lifestream ? "Lifestream installed" : "Lifestream not loaded", lifestream ? Theme.Accent : Theme.Faint);
-            Hint("Lifestream can teleport you, and travel between worlds and data centers. Off: this trigger never runs its " +
-                 "commands (/li, /lifestream...). On: they still have to be listed under Allowed.");
+            W.Chip(lifestream ? "Lifestream detected" : "Lifestream not detected", lifestream ? Theme.Accent : Theme.Faint);
+            Hint("Lifestream can teleport you and move you to other worlds and data centers. When this is off, this trigger never runs Lifestream commands (/li, /lifestream). When it's on, each one still has to be added to the Allowed list.");
 
             Gap();
             if (W.DangerButton("Turn off all protections...##protectionsOff"))
@@ -512,7 +503,7 @@ internal sealed partial class MainWindow
                 noProtectionsTarget = reaction;
                 confirmNoProtections = true;
             }
-            Hint("For a trigger you trust completely: it then runs everything it's sent. Asks twice.");
+            Hint("Lets this trigger run any command it receives. Only use this for a trigger you fully trust. You'll be asked to confirm twice.");
         }
     }
 
@@ -540,7 +531,7 @@ internal sealed partial class MainWindow
             Gap(2f);
             if (previewError != null)
             {
-                W.Chip("Commands can't be built", Theme.Negative, status: true);
+                W.Chip("Can't build commands", Theme.Negative, status: true);
                 W.TextWrapped(previewError, Theme.Dim);
                 return;
             }
@@ -584,7 +575,7 @@ internal sealed partial class MainWindow
             out var error);
         if (status == ReactionMatchStatus.InvalidReplacement)
         {
-            previewError = error ?? "The commands can't be built from this pattern.";
+            previewError = error ?? "Couldn't build commands from this pattern.";
             return;
         }
         if (status == ReactionMatchStatus.TimedOut)
@@ -627,7 +618,7 @@ internal sealed partial class MainWindow
         {
             if (!open)
                 return;
-            Label("If it's triggered again while it's still running");
+            Label("If it's triggered again while still running");
             var index = Math.Max(0, policyIndex);
             if (W.Combo("##policy", PluginUiLogic.ExecutionPolicyLabels, ref index, Theme.S(260f)))
             {
@@ -677,7 +668,7 @@ internal sealed partial class MainWindow
                 ChatHandler.InvalidateReaction(reaction, false);
                 Changed();
             }
-            Hint("Default follows Settings > General.");
+            Hint("Default uses the setting in Settings > General.");
         }
     }
 
