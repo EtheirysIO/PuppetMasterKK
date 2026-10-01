@@ -117,7 +117,6 @@ RunExecutionGateTests();
 RunReactionCommandMatcherTests();
 RunPluginUiLogicTests();
 RunConfigurationBoundaryTests();
-RunUiLayoutTests();
 RunDebugLogBufferTests();
 RunRetriggerQueueTests();
 RunRetriggerSchedulerTests();
@@ -348,10 +347,28 @@ static void RunPluginUiLogicTests()
     reaction.EnabledChannels.Clear();
     Assert(PluginUiLogic.GetStatus(reaction) == ReactionUiStatus.NoChannels, "reactions without channels should request attention");
     reaction.EnabledChannels.Add(10);
+    reaction.Senders = SenderFilter.AnyoneFilter();
+    Assert(PluginUiLogic.GetStatus(reaction) == ReactionUiStatus.Unsafe,
+        "a reaction anyone can trigger in a public channel (Say) should ask for attention");
+    reaction.EnabledChannels[0] = 24;
+    Assert(PluginUiLogic.GetStatus(reaction) == ReactionUiStatus.Ready,
+        "anyone in Free Company chat is not a stranger in a public channel");
+    reaction.EnabledChannels[0] = 10;
+    reaction.Senders = new SenderFilter();
     reaction.AllowAllCommands = true;
-    Assert(PluginUiLogic.GetStatus(reaction) == ReactionUiStatus.Unsafe, "allow-all reactions should report unsafe");
+    Assert(PluginUiLogic.GetStatus(reaction) == ReactionUiStatus.Ready,
+        "a reaction limited to trusted senders should report ready, even with any game command allowed");
     reaction.AllowAllCommands = false;
     Assert(PluginUiLogic.GetStatus(reaction) == ReactionUiStatus.Ready, "complete reactions should report ready");
+
+    var named = new Reaction { Senders = new SenderFilter { Anyone = false, Named = ["Some Body@Ultros"] } };
+    var namedCopy = PluginUiLogic.CloneReaction(named);
+    namedCopy.Senders.Named.Add("Other");
+    Assert(namedCopy.Senders.Named.Count == 2 && named.Senders.Named.Count == 1 && !namedCopy.Senders.Anyone,
+        "duplicating a reaction should copy its sender filter, not share it");
+    Assert(PluginUiLogic.CreateReactionFromLog(57, "hello", "SystemMessage", new Configuration()).Senders.Anyone &&
+           !PluginUiLogic.CreateReactionFromLog(24, "hello", "Free Company", new Configuration()).Senders.Anyone,
+        "a reaction made from a system line must allow anyone (no player sends it); one from player chat keeps the safe default");
 
     PluginUiLogic.SetRegexMode(reaction, true);
     Assert(reaction.UseRegex && ReactionCommandMatcher.SelectPattern(reaction) == null,
@@ -379,10 +396,6 @@ static void RunPluginUiLogicTests()
            PluginUiLogic.ExecutionPolicyOptions.Select(option => option.Policy).Distinct().Count() ==
                Enum.GetValues<ReactionExecutionPolicy>().Length,
         "execution-policy selector should use the guide order while mapping every persisted enum exactly once");
-    Assert(PluginUiLogic.ReactionWorkspaceSectionLabels.SequenceEqual(["Trigger", "Preview"]),
-        "reaction workspace should use short, familiar section names");
-    Assert(PluginUiLogic.ReactionBehaviorSectionLabels.SequenceEqual(["Commands", "Repeat & notifications"]),
-        "reaction behavior panel should expose one focused category at a time");
     Assert(PluginUiLogic.NotificationSettingLabels.SequenceEqual(
                ["Default", "Show", "Hide"]) &&
            PluginUiLogic.NotificationSettingLabels.Length == Enum.GetValues<ReactionNotificationSetting>().Length &&
@@ -617,55 +630,6 @@ static void RunConfigurationBoundaryTests()
         "invalid deletion transitions should leave the collection unchanged");
 
     Console.WriteLine("PASS configuration and transition boundaries");
-}
-
-static void RunUiLayoutTests()
-{
-    const float spacing = 8;
-    var minimum = PluginUiLogic.CalculateThreeColumnLayout(986, spacing);
-    Assert(minimum.ListWidth == 260 && minimum.EditorWidth == 400 && minimum.OptionsWidth == 310 &&
-           minimum.TotalWidth(spacing) == 986,
-        "the three-column editor should exactly fit its designed minimum content width");
-    var expanded = PluginUiLogic.CalculateThreeColumnLayout(1280, spacing);
-    Assert(expanded.EditorWidth == 694 && expanded.TotalWidth(spacing) == 1280,
-        "extra width should go to the editor rather than bloating the side columns");
-    var constrained = PluginUiLogic.CalculateThreeColumnLayout(500, -4, -10, 310, 400);
-    Assert(constrained.ListWidth == 0 && constrained.EditorWidth == 400 && constrained.OptionsWidth == 310,
-        "invalid layout inputs should clamp instead of producing negative child sizes");
-
-    var naturalButtons = PluginUiLogic.CalculateButtonWidths(294, spacing, [90, 150]);
-    Assert(naturalButtons.Length == 2 && naturalButtons.All(width => width > 0) &&
-           Math.Abs(naturalButtons.Sum() + spacing - 294) < 0.001f,
-        "behavior buttons should fill the row without gaps or overflow");
-    var narrowButtons = PluginUiLogic.CalculateButtonWidths(80, spacing, [90, 150]);
-    Assert(narrowButtons.All(width => width >= 0) &&
-           Math.Abs(narrowButtons.Sum() + spacing - 80) < 0.001f,
-        "button widths should shrink proportionally in a constrained panel");
-    var zeroButtons = PluginUiLogic.CalculateButtonWidths(0, spacing, [0, 0]);
-    Assert(zeroButtons.SequenceEqual([0f, 0f]),
-        "zero-size button layouts should remain finite and non-negative");
-    Assert(PluginUiLogic.CalculateButtonWidths(200, spacing, []).Length == 0,
-        "an empty button group should not divide by zero");
-
-    Assert(PluginUiLogic.CalculateChannelWindowMinimumWidth(155, 340, 8, 8) == 519,
-        "the channel window minimum should include both columns, spacing, and window padding");
-    Assert(PluginUiLogic.CalculateChannelWindowMinimumWidth(-1, -1, -1, -1) == 0,
-        "channel window constraints should never become negative");
-
-    var oneLinePanel = PluginUiLogic.CalculateWrappedPanelHeight(18, 8, 4, 24);
-    var threeLinePanel = PluginUiLogic.CalculateWrappedPanelHeight(54, 8, 4, 24);
-    Assert(oneLinePanel == 62 && threeLinePanel == 98 && threeLinePanel - oneLinePanel == 36,
-        "wrapped confirmation panels should grow by the measured wrapped text height");
-    Assert(PluginUiLogic.CalculateWrappedPanelHeight(-1, -1, -1, -1, -1) == 0,
-        "wrapped panel sizing should clamp malformed measurements");
-
-    Assert(PluginUiLogic.CalculateLogActionWidth(24, 8, 4, false) == 32 &&
-           PluginUiLogic.CalculateLogActionWidth(24, 8, 4, true) == 64,
-        "log action columns should reserve exactly one or two button widths as needed");
-    Assert(PluginUiLogic.CalculateLogActionWidth(-1, -1, -1, true) == 0,
-        "log action width should never become negative");
-
-    Console.WriteLine("PASS UI layout boundaries and wrapping");
 }
 
 static void RunDebugLogBufferTests()

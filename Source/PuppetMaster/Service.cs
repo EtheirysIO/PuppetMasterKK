@@ -22,8 +22,6 @@ namespace PuppetMaster
         public static CommandCatalog Commands { get; private set; } = CommandCatalog.Empty;
         public static string LastDebugLogExportPath { get; private set; } = string.Empty;
 
-        public static Semaphore semaphore = new(initialCount:1, maximumCount:1);
-
         private const uint CHANNEL_COUNT = 23;
 
         public static (string Path, int EntryCount) SaveDebugLogs()
@@ -365,11 +363,6 @@ namespace PuppetMaster
 
             InitializeRegex();
 
-            if (currentConfiguration.CustomChannels.Count == 0)
-            {
-                currentConfiguration.CustomChannels.Add(new ChannelSetting() { Name = "SystemMessage", ChatType = 57 });
-            }
-
             // Always set to false on load
             currentConfiguration.DebugLogTypes = false;
 
@@ -468,5 +461,8 @@ namespace PuppetMaster
 
         [PluginService]
         public static IClientState ClientState { get; private set; } = null!;
+
+        [PluginService]
+        public static ITextureProvider TextureProvider { get; private set; } = null!;
     }
 }

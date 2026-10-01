@@ -4,6 +4,7 @@ using Dalamud.Plugin;
 using System;
 
 using ECommons;
+using PuppetMaster.Windows;
 
 namespace PuppetMaster
 {
@@ -12,9 +13,7 @@ namespace PuppetMaster
         public static String Name => "PuppetMaster";
         private const String CommandName = "/puppetmaster";
         public WindowSystem windowSystem = new("PuppetMaster");
-        public ConfigWindow configWindow = null!;
-        internal ReactionVisualizerWindow visualizerWindow = null!;
-        internal MessageLogWindow messageLogWindow = null!;
+        internal MainWindow? mainWindow;
         internal EmoteReplies? emoteReplies;
 
         private bool commandRegistered;
@@ -22,6 +21,7 @@ namespace PuppetMaster
         private bool uiSubscribed;
         private bool chatHandlerStarted;
         private bool ecommonsInitialized;
+        private bool kitInitialized;
 
         public Plugin(IDalamudPluginInterface pluginInterface)
         {
@@ -38,12 +38,13 @@ namespace PuppetMaster
                 Service.InitializeConfig();
                 Service.InitializeCommands();
 
-                this.configWindow = new ConfigWindow();
-                this.visualizerWindow = new ReactionVisualizerWindow();
-                this.messageLogWindow = new MessageLogWindow();
-                windowSystem.AddWindow(configWindow);
-                windowSystem.AddWindow(visualizerWindow);
-                windowSystem.AddWindow(messageLogWindow);
+                // The UI kit hooks UiBuilder.Draw before our own handler, so its per-frame work runs first.
+                var config = Service.configuration!;
+                phys1ksUI.Kit.Initialize(pluginInterface, Service.PluginLog, Service.TextureProvider, Service.DataManager,
+                                         config.TextScale, config.Accent, config.Colorblind);
+                kitInitialized = true;
+                mainWindow = new MainWindow();
+                windowSystem.AddWindow(mainWindow);
 
                 // Start work and subscribe to events last, so a failure above leaves nothing running.
                 ChatHandler.Initialize();
@@ -61,20 +62,20 @@ namespace PuppetMaster
                 }
                 Service.CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
                 {
-                    HelpMessage = @"Open settings dialog
-/puppetmaster on|off - enable or disable all reactions
-/puppetmaster on|off <ReactionName> - enable or disable reactions by name
-/puppetmaster logging on|off - enable or disable message logging
-/puppetmaster logging clear - clear captured logs and overload counters
-/puppetmaster logging save - save captured logs to a timestamped file
-/puppetmaster viz - open the read-only reaction visualizer"
+                    HelpMessage = @"Open the Puppet Master window
+/puppetmaster on|off - turn every reaction on or off
+/puppetmaster on|off <ReactionName> - turn reactions with that name on or off
+/puppetmaster logging on|off - capture chat messages in the message log (this session)
+/puppetmaster logging clear - clear the message log and the discarded counts
+/puppetmaster logging save - save the message log to a file
+/puppetmaster viz - show what's running (Activity)"
                 });
                 commandRegistered = true;
                 Service.ChatGui.ChatMessage += ChatHandler.OnChatMessage;
                 chatSubscribed = true;
                 Service.PluginInterface.UiBuilder.Draw += DrawUI;
-                Service.PluginInterface.UiBuilder.OpenConfigUi += DrawConfigUI;
-                Service.PluginInterface.UiBuilder.OpenMainUi += DrawConfigUI;
+                Service.PluginInterface.UiBuilder.OpenConfigUi += OpenSettings;
+                Service.PluginInterface.UiBuilder.OpenMainUi += OpenMain;
                 uiSubscribed = true;
             }
             catch
@@ -92,8 +93,8 @@ namespace PuppetMaster
                 Safe(() =>
                 {
                     Service.PluginInterface.UiBuilder.Draw -= DrawUI;
-                    Service.PluginInterface.UiBuilder.OpenConfigUi -= DrawConfigUI;
-                    Service.PluginInterface.UiBuilder.OpenMainUi -= DrawConfigUI;
+                    Service.PluginInterface.UiBuilder.OpenConfigUi -= OpenSettings;
+                    Service.PluginInterface.UiBuilder.OpenMainUi -= OpenMain;
                 });
                 uiSubscribed = false;
             }
@@ -118,7 +119,15 @@ namespace PuppetMaster
                 chatHandlerStarted = false;
             }
             Safe(windowSystem.RemoveAllWindows);
-            Safe(() => configWindow?.Dispose());
+            Safe(() => mainWindow?.Dispose());
+            mainWindow = null;
+            Safe(ConfigSaver.Flush);
+            // The kit last among the UI pieces: no window may draw with the fonts it releases.
+            if (kitInitialized)
+            {
+                Safe(phys1ksUI.Kit.Dispose);
+                kitInitialized = false;
+            }
             if (ecommonsInitialized)
             {
                 Safe(ECommonsMain.Dispose);
@@ -144,7 +153,7 @@ namespace PuppetMaster
         private void OnCommand(String command, String args)
         {
             if (string.IsNullOrEmpty(args))
-                DrawConfigUI();
+                mainWindow?.Toggle(Page.Reactions);
             else
             {
                 var ptc = Service.FormatCommand($"/{args}");
@@ -172,7 +181,7 @@ namespace PuppetMaster
                 }
                 else if (ptc.Main.Equals("/viz") || ptc.Main.Equals("/visualizer"))
                 {
-                    this.visualizerWindow.IsOpen = true;
+                    mainWindow?.Show(Page.Activity);
                 }
             }
         }
@@ -218,22 +227,12 @@ namespace PuppetMaster
         private void DrawUI()
         {
             this.windowSystem.Draw();
+            ConfigSaver.Tick();
         }
 
-        private void DrawConfigUI()
-        {
-            this.configWindow.IsOpen = true;
-            ConfigWindow.PreloadTestResult();
-        }
+        // The plugin installer's Open and gear buttons.
+        private void OpenMain() => mainWindow?.Toggle(Page.Reactions);
 
-        internal void DrawVisualizerUI()
-        {
-            this.visualizerWindow.IsOpen = true;
-        }
-
-        internal void DrawLogsUI()
-        {
-            this.messageLogWindow.IsOpen = true;
-        }
+        private void OpenSettings() => mainWindow?.Toggle(Page.Settings);
     }
 }

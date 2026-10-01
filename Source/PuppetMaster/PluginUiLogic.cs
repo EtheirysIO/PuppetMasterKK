@@ -16,17 +16,6 @@ internal enum ReactionUiStatus
 
 internal static class PluginUiLogic
 {
-    internal readonly record struct ThreeColumnLayout(float ListWidth, float EditorWidth, float OptionsWidth)
-    {
-        public float TotalWidth(float spacing) => ListWidth + EditorWidth + OptionsWidth + (spacing * 2);
-    }
-
-    public static readonly string[] ReactionWorkspaceSectionLabels =
-        ["Trigger", "Preview"];
-
-    public static readonly string[] ReactionBehaviorSectionLabels =
-        ["Commands", "Repeat & notifications"];
-
     public static readonly string[] NotificationSettingLabels =
         ["Default", "Show", "Hide"];
 
@@ -35,6 +24,36 @@ internal static class PluginUiLogic
 
     public static readonly string[] AdditionalChannelCategoryLabels =
         ["System", "Combat", "Activities", "Social", "GM", "Other"];
+
+    // Channels where anyone around you (or any stranger) can talk: a reaction that listens to one of these for Anyone
+    // can be triggered by people you don't know. Numbers are XivChatType values.
+    private static readonly HashSet<int> PublicChannelIds =
+    [
+        10, // Say
+        11, // Shout
+        13, // TellIncoming
+        14, // Party
+        15, // Alliance
+        27, // NoviceNetwork
+        28, // CustomEmote
+        29, // StandardEmote
+        30, // Yell
+        32, // CrossParty
+    ];
+
+    public static bool IsPublicChannel(int chatTypeId) => PublicChannelIds.Contains(chatTypeId);
+
+    public static bool ListensToStrangers(Reaction reaction)
+    {
+        if (reaction.Senders?.Anyone != true || reaction.EnabledChannels == null)
+            return false;
+        foreach (var channel in reaction.EnabledChannels)
+        {
+            if (IsPublicChannel(channel))
+                return true;
+        }
+        return false;
+    }
 
     public static string GetAdvancedChannelCategory(string channelName)
     {
@@ -103,88 +122,6 @@ internal static class PluginUiLogic
         return Math.Clamp(preferredIndex, 0, configuration.Reactions.Count - 1);
     }
 
-    public static ThreeColumnLayout CalculateThreeColumnLayout(
-        float availableWidth,
-        float spacing,
-        float listWidth = 260,
-        float optionsWidth = 310,
-        float minimumEditorWidth = 400)
-    {
-        availableWidth = Math.Max(0, availableWidth);
-        spacing = Math.Max(0, spacing);
-        listWidth = Math.Max(0, listWidth);
-        optionsWidth = Math.Max(0, optionsWidth);
-        minimumEditorWidth = Math.Max(0, minimumEditorWidth);
-        var editorWidth = Math.Max(
-            minimumEditorWidth,
-            availableWidth - listWidth - optionsWidth - (spacing * 2));
-        return new ThreeColumnLayout(listWidth, editorWidth, optionsWidth);
-    }
-
-    public static float[] CalculateButtonWidths(
-        float availableWidth,
-        float spacing,
-        IReadOnlyList<float> naturalWidths)
-    {
-        if (naturalWidths.Count == 0)
-            return [];
-
-        availableWidth = Math.Max(0, availableWidth);
-        spacing = Math.Max(0, spacing);
-        var usableWidth = Math.Max(0, availableWidth - (spacing * (naturalWidths.Count - 1)));
-        var widths = naturalWidths.Select(width => Math.Max(0, width)).ToArray();
-        var naturalTotal = widths.Sum();
-        if (naturalTotal <= 0)
-            return Enumerable.Repeat(usableWidth / widths.Length, widths.Length).ToArray();
-        if (naturalTotal <= usableWidth)
-        {
-            var extra = (usableWidth - naturalTotal) / widths.Length;
-            for (var index = 0; index < widths.Length; index++)
-                widths[index] += extra;
-        }
-        else
-        {
-            var scale = usableWidth / naturalTotal;
-            for (var index = 0; index < widths.Length; index++)
-                widths[index] *= scale;
-        }
-        return widths;
-    }
-
-    public static float CalculateChannelWindowMinimumWidth(
-        float railWidth,
-        float contentWidth,
-        float spacing,
-        float horizontalPadding)
-    {
-        return Math.Max(0, railWidth) + Math.Max(0, contentWidth) + Math.Max(0, spacing) +
-               (Math.Max(0, horizontalPadding) * 2);
-    }
-
-    public static float CalculateWrappedPanelHeight(
-        float measuredTextHeight,
-        float verticalPadding,
-        float itemSpacing,
-        float frameHeight,
-        int buttonRows = 1)
-    {
-        return Math.Max(0, measuredTextHeight) +
-               (Math.Max(0, verticalPadding) * 2) +
-               Math.Max(0, itemSpacing) +
-               (Math.Max(0, frameHeight) * Math.Max(0, buttonRows));
-    }
-
-    public static float CalculateLogActionWidth(
-        float frameHeight,
-        float spacing,
-        float horizontalCellPadding,
-        bool hasSecondaryAction)
-    {
-        return Math.Max(0, frameHeight) +
-               (hasSecondaryAction ? Math.Max(0, frameHeight) + Math.Max(0, spacing) : 0) +
-               (Math.Max(0, horizontalCellPadding) * 2);
-    }
-
     public static bool MatchesSearch(Reaction reaction, string search)
     {
         if (string.IsNullOrWhiteSpace(search))
@@ -204,7 +141,7 @@ internal static class PluginUiLogic
             return ReactionUiStatus.InvalidTrigger;
         if (reaction.EnabledChannels == null || reaction.EnabledChannels.Count == 0)
             return ReactionUiStatus.NoChannels;
-        if (reaction.AllowAllCommands)
+        if (ListensToStrangers(reaction))
             return ReactionUiStatus.Unsafe;
         return ReactionUiStatus.Ready;
     }
@@ -338,6 +275,7 @@ internal static class PluginUiLogic
             EnabledChannels = new List<int>(source.EnabledChannels),
             CommandWhitelist = new List<string>(source.CommandWhitelist),
             CommandBlacklist = new List<string>(source.CommandBlacklist),
+            Senders = (source.Senders ?? SenderFilter.AnyoneFilter()).Clone(),
         };
     }
 
@@ -369,7 +307,17 @@ internal static class PluginUiLogic
         reaction.CustomPhrase = $"^{Regex.Escape(triggerText)}$";
         reaction.TestInput = triggerText;
         reaction.EnabledChannels.Add(chatTypeId);
+        // System and custom channels have no player behind them, so only "Anyone" can ever match there.
+        if (!IsPlayerChatChannel(chatTypeId))
+            reaction.Senders = SenderFilter.AnyoneFilter();
         return reaction;
+    }
+
+    // Channels whose lines come from a player (so a sender filter can tell who). Numbers are XivChatType values.
+    public static bool IsPlayerChatChannel(int chatTypeId)
+    {
+        // Say..CrossParty (10-32), PvPTeam (36), CrossLinkShell1 (37), CrossLinkShell2-8 (101-107).
+        return chatTypeId is (>= 10 and <= 32) or 36 or 37 or (>= 101 and <= 107);
     }
 
     public static void SetChannel(List<int> selectedChannels, int chatTypeId, bool enabled)

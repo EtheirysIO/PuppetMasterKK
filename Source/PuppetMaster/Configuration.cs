@@ -144,6 +144,11 @@ namespace PuppetMaster
         // Set once the old Right Back At You settings have been looked for, so they're imported only once.
         public bool CopycatImportChecked { get; set; } = false;
 
+        // Appearance (phys1ksUI).
+        public phys1ksUI.AccentColor Accent { get; set; } = phys1ksUI.AccentColor.Orange;
+        public float TextScale { get; set; } = 1f;
+        public bool Colorblind { get; set; } = false;
+
         [NonSerialized]
         private IDalamudPluginInterface? pluginInterface;
 

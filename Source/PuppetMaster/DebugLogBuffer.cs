@@ -1,43 +1,62 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Threading;
 
 namespace PuppetMaster;
 
-internal readonly record struct DebugLogEntry(int ChatTypeId, string Text, string TriggerText);
+// Sequence identifies an entry for its whole life (row ids stay put while older entries scroll out).
+internal readonly record struct DebugLogEntry(long Sequence, int ChatTypeId, string Text, string TriggerText);
 
 internal static class DebugLogBuffer
 {
     private const int MaximumEntries = 500;
-    private static readonly ConcurrentQueue<DebugLogEntry> Entries = new();
+    private static readonly object Sync = new();
+    private static readonly Queue<DebugLogEntry> Entries = new();
     private static long revision;
+    private static long nextSequence;
 
-    public static long Revision => Interlocked.Read(ref revision);
+    public static long Revision
+    {
+        get
+        {
+            lock (Sync)
+                return revision;
+        }
+    }
 
     public static void Add(int chatTypeId, string text, string triggerText)
     {
-        Entries.Enqueue(new DebugLogEntry(chatTypeId, text, triggerText));
-        Interlocked.Increment(ref revision);
-
-        while (Entries.Count > MaximumEntries)
-            Entries.TryDequeue(out _);
+        lock (Sync)
+        {
+            Entries.Enqueue(new DebugLogEntry(++nextSequence, chatTypeId, text, triggerText));
+            revision++;
+            while (Entries.Count > MaximumEntries)
+                Entries.Dequeue();
+        }
     }
 
     public static DebugLogEntry[] Snapshot()
     {
-        return Entries.ToArray();
+        lock (Sync)
+            return Entries.ToArray();
+    }
+
+    // The entries and the revision they belong to, read together (a cache keyed on the revision never misses one).
+    public static (DebugLogEntry[] Entries, long Revision) SnapshotWithRevision()
+    {
+        lock (Sync)
+            return (Entries.ToArray(), revision);
     }
 
     public static void Clear()
     {
-        while (Entries.TryDequeue(out _))
+        lock (Sync)
         {
+            Entries.Clear();
+            revision++;
         }
-        Interlocked.Increment(ref revision);
     }
 
     public static string SaveSnapshot(string directory, DebugLogEntry[] entries)
