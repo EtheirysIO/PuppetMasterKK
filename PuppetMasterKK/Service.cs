@@ -1,5 +1,6 @@
 using Dalamud.Game;
-using Dalamud.Game.Text;
+using Dalamud.Game.Command;
+using Dalamud.Interface.ImGuiNotification;
 using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
@@ -9,6 +10,7 @@ using Lumina.Excel.Sheets;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.Loader;
 using System.Text.RegularExpressions;
 using System.Threading;
 
@@ -21,8 +23,6 @@ namespace PuppetMasterKK
         // Every game command and emote, with aliases resolved. Empty until InitializeCommands runs.
         public static CommandCatalog Commands { get; private set; } = CommandCatalog.Empty;
         public static string LastDebugLogExportPath { get; private set; } = string.Empty;
-
-        private const uint CHANNEL_COUNT = 23;
 
         public static (string Path, int EntryCount) SaveDebugLogs()
         {
@@ -43,7 +43,7 @@ namespace PuppetMasterKK
             var english = new Dictionary<uint, string[]>();
             try
             {
-                foreach (var row in DataManager.GetExcelSheet<TextCommand>(Dalamud.Game.ClientLanguage.English))
+                foreach (var row in DataManager.GetExcelSheet<TextCommand>(ClientLanguage.English))
                     english[row.RowId] = CommandForms(row);
             }
             catch (Exception ex)
@@ -98,7 +98,7 @@ namespace PuppetMasterKK
                 if (!enabled)
                     ChatHandler.CancelReaction(configuration.Reactions[i]);
             }
-            configuration?.Save();
+            SaveNow();
             if (configuration != null)
                 ChatGui.Print($"[PuppetMasterKK] {(enabled ? "Turned on" : "Turned off")} {Plural(configuration.Reactions.Count, "trigger")}.");
         }
@@ -119,7 +119,26 @@ namespace PuppetMasterKK
             ChatGui.Print(found > 0
                 ? $"[PuppetMasterKK] {(enabled ? "Turned on" : "Turned off")} {Plural(found, "trigger")} named \"{name}\"."
                 : $"[PuppetMasterKK] No trigger is named \"{name}\".");
-            configuration?.Save();
+            SaveNow();
+        }
+
+        // Saves through ConfigSaver, so a locked file is retried later instead of throwing out of /pmkk.
+        private static void SaveNow()
+        {
+            ConfigSaver.MarkDirty();
+            ConfigSaver.Flush();
+        }
+
+        // A PuppetMasterKK toast. Framework thread.
+        public static void Notify(string content, NotificationType type, int seconds = 20)
+        {
+            NotificationManager.AddNotification(new Notification
+            {
+                Title = "PuppetMasterKK",
+                Content = content,
+                Type = type,
+                InitialDuration = TimeSpan.FromSeconds(seconds),
+            });
         }
 
         private static string Plural(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
@@ -135,7 +154,6 @@ namespace PuppetMasterKK
                 ? ReactionCommandMatcher.BuildPhrasePattern(configuration!.Reactions[index].TriggerPhrase)
                 : string.Empty;
         }
-        public static String GetDefaultReplaceMatch() => ReactionCommandMatcher.PhraseReplacement;
 
         private static void InitializeRegex()
         {
@@ -153,15 +171,17 @@ namespace PuppetMasterKK
             reaction.CustomRx = null;
             try
             {
+                // Nothing but the text box enforces the length limit, and a hand-edited config can hold anything.
+                var maxLength = configuration.MaxRegexLength;
                 if (reaction.UseRegex)
                 {
-                    if (!reaction.CustomPhrase.IsNullOrWhitespace())
+                    if (!reaction.CustomPhrase.IsNullOrWhitespace() && reaction.CustomPhrase.Length <= maxLength)
                         reaction.CustomRx = new Regex(reaction.CustomPhrase, RegexOptions.None, TimeSpan.FromMilliseconds(250));
                 }
                 else
                 {
                     var pattern = GetDefaultRegex(index);
-                    if (!pattern.IsNullOrWhitespace())
+                    if (!pattern.IsNullOrWhitespace() && reaction.TriggerPhrase.Length <= maxLength)
                         reaction.Rx = new Regex(pattern, RegexOptions.None, TimeSpan.FromMilliseconds(250));
                 }
             }
@@ -171,15 +191,26 @@ namespace PuppetMasterKK
             }
         }
 
-        public static ParsedTextCommand FormatCommand(string command) => ReactionCommandMatcher.FormatCommand(command);
 
-        // The plugin that registered a command (its assembly name, which is the plugin's internal name), or null.
-        // Framework thread: it reads the registered commands.
+        // The plugin that registered a command (its internal name), or null. Framework thread: it reads the registered
+        // commands.
         public static string? PluginOwner(string command)
         {
-            if (!CommandManager.Commands.TryGetValue(CommandCatalog.Normalize(command), out var info))
+            return CommandManager.Commands.TryGetValue(CommandCatalog.Normalize(command), out var info) ? HandlerOwner(info) : null;
+        }
+
+        // Dalamud loads each plugin into a load context named after its main assembly, which is the plugin's internal
+        // name. That also covers handlers that live in a library the plugin loaded (ECommons' command attributes);
+        // otherwise the handler's own assembly name is used. Null when there's no handler: then nothing is opened.
+        private static string? HandlerOwner(IReadOnlyCommandInfo info)
+        {
+            var assembly = info.Handler?.Method.DeclaringType?.Assembly;
+            if (assembly == null)
                 return null;
-            return info.Handler?.Method.DeclaringType?.Assembly.GetName().Name;
+            var context = AssemblyLoadContext.GetLoadContext(assembly);
+            return context != null && context != AssemblyLoadContext.Default && !string.IsNullOrEmpty(context.Name)
+                ? context.Name
+                : assembly.GetName().Name;
         }
 
         // Whether a command runs without being listed, because this trigger switched its protection off.
@@ -205,8 +236,7 @@ namespace PuppetMasterKK
             {
                 foreach (var info in CommandManager.Commands.Values)
                 {
-                    var owner = info.Handler?.Method.DeclaringType?.Assembly.GetName().Name;
-                    if (owner != null)
+                    if (HandlerOwner(info) is { } owner)
                         owners.Add(owner);
                 }
                 var list = new List<(string InternalName, string Name, string? Risk)>();
@@ -230,31 +260,34 @@ namespace PuppetMasterKK
             return commandPlugins;
         }
 
-        public static bool IsCommandAllowed(Reaction reaction, string command, out string reason)
+        // What the editor shows for a line of a trigger's commands, including /wait.
+        public static bool IsCommandAllowed(Reaction reaction, string command, bool templateWait, out string reason)
+        {
+            var catalog = Commands;
+            var whitelist = catalog.CanonicalSet(reaction.CommandWhitelist);
+            var blacklist = catalog.CanonicalSet(reaction.CommandBlacklist);
+            if (CommandCatalog.Normalize(command) == CommandPolicy.WaitCommand)
+                return CommandPolicy.IsWaitAllowed(catalog, templateWait, whitelist, blacklist, out reason, reaction.NoProtections);
+            return IsCommandAllowed(command, whitelist, blacklist, reaction.AllowAllCommands, reaction.Protections,
+                                    reaction.NoProtections, out reason);
+        }
+
+        // The one permission check for a command (not /wait). The lists must come from Commands.CanonicalSet.
+        // Framework thread: it reads the registered plugin commands.
+        public static bool IsCommandAllowed(
+            string command,
+            IReadOnlySet<string> whitelist,
+            IReadOnlySet<string> blacklist,
+            bool allowAllGameCommands,
+            ProtectionSettings protections,
+            bool noProtections,
+            out string reason)
         {
             var catalog = Commands;
             var canonical = catalog.Canonicalize(command);
-            if (CommandCatalog.Normalize(command) == CommandPolicy.WaitCommand)
-            {
-                var replacement = reaction.UseRegex ? reaction.ReplaceMatch : GetDefaultReplaceMatch();
-                return CommandPolicy.IsWaitAllowed(
-                    catalog,
-                    ReactionCommandMatcher.TemplateHasWait(replacement),
-                    catalog.CanonicalSet(reaction.CommandWhitelist),
-                    catalog.CanonicalSet(reaction.CommandBlacklist),
-                    out reason,
-                    reaction.NoProtections);
-            }
             var kind = catalog.Classify(command, IsPluginCommand);
-            return CommandPolicy.IsAllowed(
-                canonical,
-                kind,
-                catalog.CanonicalSet(reaction.CommandWhitelist),
-                catalog.CanonicalSet(reaction.CommandBlacklist),
-                reaction.AllowAllCommands,
-                out reason,
-                reaction.NoProtections,
-                IsOpen(reaction.Protections, kind, canonical, command));
+            return CommandPolicy.IsAllowed(canonical, kind, whitelist, blacklist, allowAllGameCommands, out reason, noProtections,
+                                           IsOpen(protections, kind, canonical, command));
         }
 
         // True when this load brought over the old Puppet Master's settings.
@@ -390,15 +423,10 @@ namespace PuppetMasterKK
 
             if (loadError != null)
             {
-                NotificationManager.AddNotification(new Dalamud.Interface.ImGuiNotification.Notification
-                {
-                    Title = "PuppetMasterKK",
-                    Content = preservedPath != null
-                        ? $"Your settings could not be read, so PuppetMasterKK started with defaults.\nThe old file was kept at:\n{preservedPath}"
-                        : "Your settings could not be read, so PuppetMasterKK is using defaults for this session. Changes won't be saved, so the file isn't overwritten.",
-                    Type = Dalamud.Interface.ImGuiNotification.NotificationType.Error,
-                    InitialDuration = TimeSpan.FromSeconds(20),
-                });
+                Notify(preservedPath != null
+                           ? $"Your settings could not be read, so PuppetMasterKK started with defaults.\nThe old file was kept at:\n{preservedPath}"
+                           : "Your settings could not be read, so PuppetMasterKK is using defaults for this session. Changes won't be saved, so the file isn't overwritten.",
+                       NotificationType.Error);
             }
         }
 
@@ -407,51 +435,12 @@ namespace PuppetMasterKK
             var currentConfiguration = configuration!;
             ConfigurationMigrator.MigrateAndNormalize(currentConfiguration);
 
-            if (currentConfiguration.EnabledChannels.Count != CHANNEL_COUNT)
-            {
-                currentConfiguration.EnabledChannels =
-                [
-                    new() {ChatType = (int)XivChatType.CrossLinkShell1, Name = "CWLS1"},
-                    new() {ChatType = (int)XivChatType.CrossLinkShell2, Name = "CWLS2"},
-                    new() {ChatType = (int)XivChatType.CrossLinkShell3, Name = "CWLS3"},
-                    new() {ChatType = (int)XivChatType.CrossLinkShell4, Name = "CWLS4"},
-                    new() {ChatType = (int)XivChatType.CrossLinkShell5, Name = "CWLS5"},
-                    new() {ChatType = (int)XivChatType.CrossLinkShell6, Name = "CWLS6"},
-                    new() {ChatType = (int)XivChatType.CrossLinkShell7, Name = "CWLS7"},
-                    new() {ChatType = (int)XivChatType.CrossLinkShell8, Name = "CWLS8"},
-                    new() {ChatType = (int)XivChatType.Ls1, Name = "LS1"},
-                    new() {ChatType = (int)XivChatType.Ls2, Name = "LS2"},
-                    new() {ChatType = (int)XivChatType.Ls3, Name = "LS3"},
-                    new() {ChatType = (int)XivChatType.Ls4, Name = "LS4"},
-                    new() {ChatType = (int)XivChatType.Ls5, Name = "LS5"},
-                    new() {ChatType = (int)XivChatType.Ls6, Name = "LS6"},
-                    new() {ChatType = (int)XivChatType.Ls7, Name = "LS7"},
-                    new() {ChatType = (int)XivChatType.Ls8, Name = "LS8"},
-                    new() {ChatType = (int)XivChatType.TellIncoming, Name = "Tell"},
-                    new() {ChatType = (int)XivChatType.Say, Name = "Say"},
-                    new() {ChatType = (int)XivChatType.Party, Name = "Party"},
-                    new() {ChatType = (int)XivChatType.Yell, Name = "Yell"},
-                    new() {ChatType = (int)XivChatType.Shout, Name = "Shout"},
-                    new() {ChatType = (int)XivChatType.FreeCompany, Name = "Free Company"},
-                    new() {ChatType = (int)XivChatType.Alliance, Name = "Alliance"}
-                ];
-            }
-
             if (currentConfiguration.Reactions.Count == 0)
             {
-                currentConfiguration.Reactions.Add(Reaction.CreateDefault(
-                    commandWhitelist: currentConfiguration.DefaultCommandWhitelist,
-                    commandBlacklist: currentConfiguration.DefaultCommandBlacklist,
-                    allowAllCommands: currentConfiguration.DefaultAllowAllCommands,
-                    motionOnly: currentConfiguration.DefaultMotionOnly,
-                    protections: currentConfiguration.DefaultProtections,
-                    enabledChannels: currentConfiguration.DefaultEnabledChannels));
+                currentConfiguration.Reactions.Add(Reaction.FromDefaults(currentConfiguration));
             }
 
             InitializeRegex();
-
-            // Always set to false on load
-            currentConfiguration.DebugLogTypes = false;
 
             if (!currentConfiguration.CopycatImportChecked)
             {

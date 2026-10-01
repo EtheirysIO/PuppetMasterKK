@@ -12,7 +12,7 @@ internal sealed partial class MainWindow
     private static readonly string[] TriggerModes = ["Phrase", "Regex pattern"];
     private static readonly string[] CommandModes = ["Only listed commands", "Any game command"];
     private static readonly string[] NotificationModes = PluginUiLogic.NotificationSettingLabels;
-    private static readonly string[] NewLineSeparators = ["\r\n", "\r", "\n"];
+    private const string NameHint = "Name@World (or just Name for any world)";
 
     private int selected;
     private string reactionSearch = string.Empty;
@@ -27,7 +27,7 @@ internal sealed partial class MainWindow
     private string allowInput = string.Empty;
     private string blockInput = string.Empty;
     // What's typed in each "Also these players" box, per card (the reaction editor and Emote replies have their own).
-    private readonly System.Collections.Generic.Dictionary<string, string> namedInputs = new();
+    private readonly Dictionary<string, string> namedInputs = new();
     private long previewBuiltAt;
 
     // The test preview is worked out when something it depends on changes, not every frame (a slow pattern would
@@ -85,13 +85,7 @@ internal sealed partial class MainWindow
 
     private void NewReaction()
     {
-        Config.Reactions.Add(Reaction.CreateDefault(
-            commandWhitelist: Config.DefaultCommandWhitelist,
-            commandBlacklist: Config.DefaultCommandBlacklist,
-            allowAllCommands: Config.DefaultAllowAllCommands,
-            motionOnly: Config.DefaultMotionOnly,
-            protections: Config.DefaultProtections,
-            enabledChannels: Config.DefaultEnabledChannels));
+        Config.Reactions.Add(Reaction.FromDefaults(Config));
         Select(Config.Reactions.Count - 1);
         page = Page.Reactions;
     }
@@ -269,7 +263,8 @@ internal sealed partial class MainWindow
                         PluginUiLogic.ListensToStrangers(reaction)
                             ? "Anyone in the channels you picked can trigger this, including strangers in Say, Yell, Shout and cross-world linkshells."
                             : null);
-        DrawChannelsCard(reaction);
+        DrawChannelsCard("channels", reaction.EnabledChannels, "This trigger isn't listening to any channels yet.",
+                         $"Channels for {DisplayName(reaction)}", () => ChatHandler.InvalidateReaction(reaction, false));
         DrawEmoteTextCard(reaction);
         DrawProtectionsCard(reaction);
         DrawTestCard(reaction);
@@ -326,18 +321,19 @@ internal sealed partial class MainWindow
             {
                 PluginUiLogic.EnsureRegexRestoreTrigger(reaction);
                 reaction.CustomPhrase = Service.GetDefaultRegex(selected);
-                reaction.ReplaceMatch = Service.GetDefaultReplaceMatch();
+                reaction.ReplaceMatch = ReactionCommandMatcher.PhraseReplacement;
                 TriggerChanged(reaction);
             }
         }
     }
 
+    /// <summary>Who may use a trigger (or Follow mode, Mimic, Emote replies): anyone, or the picked groups and players.</summary>
     private void DrawSendersCard(string id, SenderFilter senders, Action changed, string? warning)
     {
         using (W.Card(id, "Who can trigger it", senders.Describe()))
         {
             var anyone = senders.Anyone;
-            if (W.Toggle("Anyone##anyone", ref anyone, tooltip: "Anyone who can talk in the channels you picked"))
+            if (W.Toggle("Anyone##anyone", ref anyone, tooltip: "Anyone at all, with no check on who they are"))
             {
                 senders.Anyone = anyone;
                 // Leaving Anyone with nothing else picked would let nobody trigger it: start from the safe groups.
@@ -375,8 +371,9 @@ internal sealed partial class MainWindow
                 Gap();
                 Label("Also these players");
                 var namedInput = namedInputs.GetValueOrDefault(id, string.Empty);
-                if (StringListEditor("named", senders.Named, ref namedInput, "Name@World (or just Name for any world)",
-                                     "Nobody else.", AddNamed))
+                var named = senders.Named;
+                if (StringListEditor("named", named, ref namedInput, NameHint, "Nobody else.",
+                                     text => PluginUiLogic.AddPlayerName(named, text)))
                     changed();
                 namedInputs[id] = namedInput;
             }
@@ -387,20 +384,6 @@ internal sealed partial class MainWindow
                 W.Banner(warning, Theme.Warning, icon: FontAwesomeIcon.ExclamationTriangle);
             }
         }
-
-        bool AddNamed(string input)
-        {
-            var name = input.Trim();
-            if (name.Length == 0)
-                return false;
-            foreach (var existing in senders.Named)
-            {
-                if (existing.Equals(name, StringComparison.OrdinalIgnoreCase))
-                    return false;
-            }
-            senders.Named.Add(name);
-            return true;
-        }
     }
 
     private void DrawEmoteTextCard(Reaction reaction)
@@ -408,8 +391,7 @@ internal sealed partial class MainWindow
         using (W.Card("emoteText", "Emotes"))
         {
             var motionOnly = reaction.MotionOnly;
-            if (W.Toggle("Hide emote text##motionOnly", ref motionOnly,
-                         tooltip: "The animation still plays, but the emote message isn't posted in chat"))
+            if (HideEmoteTextToggle("motionOnly", ref motionOnly))
             {
                 reaction.MotionOnly = motionOnly;
                 RulesChanged(reaction);
@@ -417,40 +399,50 @@ internal sealed partial class MainWindow
         }
     }
 
-    private void DrawCommandLists(Reaction reaction)
+    /// <summary>
+    /// "Which commands can run?" and the Allowed and Blocked lists, for a trigger or (<paramref name="target"/> null)
+    /// the new-trigger defaults. Picking "Any game command" asks first (DrawReactionDialogs applies it). True when
+    /// something changed here.
+    /// </summary>
+    private bool DrawCommandLists(Reaction? target, List<string> allowed, List<string> blocked, ref string allowText,
+                                  ref string blockText)
     {
+        var changed = false;
+        var allowAll = target?.AllowAllCommands ?? Config.DefaultAllowAllCommands;
         Label("Which commands can run?");
-        var mode = reaction.AllowAllCommands ? 1 : 0;
+        var mode = allowAll ? 1 : 0;
         if (W.Segmented("##commandMode", CommandModes, ref mode, W.SegmentedWidth(CommandModes)))
         {
             if (mode == 1)
             {
-                allowAllTarget = reaction;
+                allowAllTarget = target;
                 confirmAllowAll = true;
             }
             else
             {
-                reaction.AllowAllCommands = false;
-                RulesChanged(reaction);
+                if (target != null)
+                    target.AllowAllCommands = false;
+                else
+                    Config.DefaultAllowAllCommands = false;
+                allowAll = false;
+                changed = true;
             }
         }
 
         // Shown in both modes: with "Any game command", chat and plugin commands still have to be listed here.
         Gap();
-        W.Heading(reaction.AllowAllCommands ? "Also allowed (chat and plugin commands)" : "Allowed");
-        if (StringListEditor("allow", reaction.CommandWhitelist, ref allowInput, "/command",
-                             reaction.AllowAllCommands ? "None." : "None. Emotes still run.",
-                             input => PluginUiLogic.AddCommandRule(reaction.CommandWhitelist, reaction.CommandBlacklist, input)))
-            RulesChanged(reaction);
+        W.Heading(allowAll ? "Also allowed (chat and plugin commands)" : "Allowed");
+        changed |= StringListEditor("allow", allowed, ref allowText, "/command", allowAll ? "None." : "None. Emotes still run.",
+                                    text => PluginUiLogic.AddCommandRule(allowed, blocked, text));
 
         Gap();
         W.Heading("Blocked");
-        if (StringListEditor("block", reaction.CommandBlacklist, ref blockInput, "/command", "Nothing blocked.",
-                             input => PluginUiLogic.AddCommandRule(reaction.CommandBlacklist, reaction.CommandWhitelist, input)))
-            RulesChanged(reaction);
+        changed |= StringListEditor("block", blocked, ref blockText, "/command", "Nothing blocked.",
+                                    text => PluginUiLogic.AddCommandRule(blocked, allowed, text));
 
         Gap(2f);
         Hint("Emotes always run unless you block them. /logout, /shutdown, /follow (use Follow mode instead), /pmkk and /xl commands never run.");
+        return changed;
     }
 
     private void DrawNoProtectionsSecondConfirm()
@@ -496,7 +488,8 @@ internal sealed partial class MainWindow
                 RulesChanged(reaction);
 
             Gap();
-            DrawCommandLists(reaction);
+            if (DrawCommandLists(reaction, reaction.CommandWhitelist, reaction.CommandBlacklist, ref allowInput, ref blockInput))
+                RulesChanged(reaction);
 
             Gap();
             if (W.DangerButton("Turn off all protections...##protectionsOff"))
@@ -570,7 +563,7 @@ internal sealed partial class MainWindow
         var status = ReactionCommandMatcher.TryGenerateCommand(
             ReactionCommandMatcher.SelectPattern(reaction),
             ReactionCommandMatcher.SanitizeIncoming(reaction.TestInput),
-            reaction.UseRegex ? reaction.ReplaceMatch : Service.GetDefaultReplaceMatch(),
+            ReactionCommandMatcher.SelectReplacement(reaction),
             out var command,
             out var matched,
             out var error);
@@ -589,14 +582,17 @@ internal sealed partial class MainWindow
 
         previewMatchedAny = true;
         previewMatched = matched;
-        foreach (var line in command.Split(NewLineSeparators, StringSplitOptions.RemoveEmptyEntries))
+        var lines = ReactionCommandMatcher.SplitLines(command);
+        var waitLines = ReactionCommandMatcher.TemplateWaitLines(ReactionCommandMatcher.SelectReplacement(reaction));
+        for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
         {
-            var parsed = Service.FormatCommand(line);
+            var parsed = ReactionCommandMatcher.FormatCommand(lines[lineIndex]);
             if (string.IsNullOrWhiteSpace(parsed.Main))
                 continue;
             if (reaction.MotionOnly && Service.Commands.IsEmote(parsed.Main))
                 parsed.Args = "motion";
-            var allowed = Service.IsCommandAllowed(reaction, parsed.Main, out var reason);
+            var allowed = Service.IsCommandAllowed(reaction, parsed.Main,
+                                                   ReactionCommandMatcher.IsTemplateWait(waitLines, lineIndex), out var reason);
             preview.Add(new PreviewLine(parsed.ToString(), allowed, Capitalize(reason)));
         }
     }
@@ -634,7 +630,7 @@ internal sealed partial class MainWindow
             var ignores = PluginUiLogic.IgnoresCooldown(reaction.ExecutionPolicy);
             ImGui.BeginDisabled(ignores);
             var cooldown = reaction.CooldownSeconds;
-            if (W.NumberInput("##cooldown", ref cooldown, 0, 86400, 1, Theme.S(160f), "seconds"))
+            if (W.NumberInput("##cooldown", ref cooldown, 0, Reaction.MaxCooldownSeconds, 1, Theme.S(160f), "seconds"))
             {
                 reaction.CooldownSeconds = PluginUiLogic.ClampCooldown(cooldown);
                 ChatHandler.InvalidateReaction(reaction, false);

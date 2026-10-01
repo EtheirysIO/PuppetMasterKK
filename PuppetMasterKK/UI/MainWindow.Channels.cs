@@ -126,16 +126,22 @@ internal sealed partial class MainWindow
 
     // ───────────────────────── Chips and the card ─────────────────────────
 
-    private void DrawChannelsCard(Reaction reaction)
+    /// <summary>
+    /// The Channels card: the picked channels as chips and a button that opens the picker for them. Shared by triggers,
+    /// the new-trigger defaults, Follow mode and Mimic.
+    /// </summary>
+    private void DrawChannelsCard(string id, List<int> channels, string emptyText, string pickerTitle, Action? onChanged = null,
+                                  string? hint = null)
     {
-        var count = reaction.EnabledChannels.Count;
-        using (W.Card("channels", "Channels", count == 1 ? "1 picked" : $"{count} picked"))
+        var count = channels.Count;
+        using (W.Card(id, "Channels", count == 1 ? "1 picked" : $"{count} picked"))
         {
-            DrawChannelChips(reaction.EnabledChannels, "This trigger isn't listening to any channels yet.");
+            DrawChannelChips(channels, emptyText);
             Gap(2f);
             if (W.SecondaryButton("Pick channels##pickChannels"))
-                OpenChannelPicker($"Channels for {DisplayName(reaction)}", reaction.EnabledChannels,
-                                  () => ChatHandler.InvalidateReaction(reaction, false));
+                OpenChannelPicker(pickerTitle, channels, onChanged);
+            if (hint != null)
+                Hint(hint);
         }
     }
 
@@ -215,6 +221,9 @@ internal sealed partial class MainWindow
             pickerCategoryLabels.Add(picked > 0 ? $"{CategoryNames[i]}  ({picked}/{channels.Count})" : CategoryNames[i]);
         }
 
+        // "Other" goes away once its last channel is unticked.
+        pickerCategory = Math.Clamp(pickerCategory, 0, pickerCategoryLabels.Count - 1);
+
         var width = Theme.S(560f);
         ImGui.BeginGroup();
         W.Combo("##pickerCategory", pickerCategoryLabels, ref pickerCategory, Theme.S(220f));
@@ -225,7 +234,6 @@ internal sealed partial class MainWindow
         var visible = new List<ChannelEntry>();
         if (string.IsNullOrWhiteSpace(pickerSearch))
         {
-            pickerCategory = Math.Clamp(pickerCategory, 0, pickerCategoryLabels.Count - 1);
             visible.AddRange(CategoryChannels(pickerCategory, target));
         }
         else

@@ -12,6 +12,8 @@ internal readonly record struct DebugLogEntry(long Sequence, int ChatTypeId, str
 internal static class DebugLogBuffer
 {
     private const int MaximumEntries = 500;
+    // Longer text (other players' messages) is cut: the buffer stays small and the log never draws huge strings.
+    private const int MaximumTextLength = 2000;
     private static readonly object Sync = new();
     private static readonly Queue<DebugLogEntry> Entries = new();
     private static long revision;
@@ -30,11 +32,17 @@ internal static class DebugLogBuffer
     {
         lock (Sync)
         {
-            Entries.Enqueue(new DebugLogEntry(++nextSequence, chatTypeId, text, triggerText));
+            Entries.Enqueue(new DebugLogEntry(++nextSequence, chatTypeId, Cap(text), Cap(triggerText)));
             revision++;
             while (Entries.Count > MaximumEntries)
                 Entries.Dequeue();
         }
+    }
+
+    private static string Cap(string? text)
+    {
+        text ??= string.Empty;
+        return text.Length <= MaximumTextLength ? text : text[..MaximumTextLength];
     }
 
     public static DebugLogEntry[] Snapshot()
@@ -71,7 +79,8 @@ internal static class DebugLogBuffer
             $"# Exported: {DateTimeOffset.Now:O}",
             $"# Entries: {entries.Length}",
         };
-        lines.AddRange(entries.Select(static entry => entry.Text));
+        // One line per entry: a line break inside a message can't pass for another entry.
+        lines.AddRange(entries.Select(static entry => entry.Text.ReplaceLineEndings(" ")));
         File.WriteAllLines(path, lines, new UTF8Encoding(false));
         return path;
     }

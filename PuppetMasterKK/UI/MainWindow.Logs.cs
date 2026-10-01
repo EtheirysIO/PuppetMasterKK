@@ -33,7 +33,8 @@ internal sealed partial class MainWindow
         if (W.SecondaryButton("Save to file", enabled: any, tooltip: "Save the captured messages to a text file"))
             SaveLogs();
         ImGui.SameLine(0f, Theme.Space.Tight);
-        if (W.SecondaryButton("Clear", enabled: any, tooltip: "Clear the captured messages and the discarded counts"))
+        var anyDiscarded = ChatHandler.DroppedMessageCount > 0 || ChatHandler.DroppedRetriggerCount > 0;
+        if (W.SecondaryButton("Clear", enabled: any || anyDiscarded, tooltip: "Clear the captured messages and the discarded counts"))
         {
             DebugLogBuffer.Clear();
             ChatHandler.ResetDroppedMessageCount();
@@ -45,24 +46,12 @@ internal sealed partial class MainWindow
         try
         {
             var export = Service.SaveDebugLogs();
-            Service.NotificationManager.AddNotification(new Notification
-            {
-                Title = "PuppetMasterKK",
-                Content = $"Saved {export.EntryCount} log entries.\n{export.Path}",
-                Type = NotificationType.Success,
-                InitialDuration = TimeSpan.FromSeconds(6),
-            });
+            Service.Notify($"Saved {export.EntryCount} log entries.\n{export.Path}", NotificationType.Success, 6);
         }
         catch (Exception exception)
         {
             Service.PluginLog.Error(exception, "Failed to save PuppetMasterKK message logs.");
-            Service.NotificationManager.AddNotification(new Notification
-            {
-                Title = "PuppetMasterKK",
-                Content = $"Failed to save logs.\n{exception.Message}",
-                Type = NotificationType.Error,
-                InitialDuration = TimeSpan.FromSeconds(6),
-            });
+            Service.Notify($"Failed to save logs.\n{exception.Message}", NotificationType.Error, 6);
         }
     }
 

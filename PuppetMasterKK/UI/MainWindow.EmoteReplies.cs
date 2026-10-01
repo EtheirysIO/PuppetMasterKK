@@ -39,8 +39,7 @@ internal sealed partial class MainWindow
             }
             Gap(2f);
             var motionOnly = settings.MotionOnly;
-            if (W.Toggle("Hide emote text##replyMotionOnly", ref motionOnly,
-                         tooltip: "The animation still plays, but the emote message isn't posted in chat"))
+            if (HideEmoteTextToggle("replyMotionOnly", ref motionOnly))
             {
                 settings.MotionOnly = motionOnly;
                 Changed();
@@ -49,7 +48,7 @@ internal sealed partial class MainWindow
             Gap();
             Label("Wait before answering the same player again");
             var cooldown = settings.PerPlayerCooldownSeconds;
-            if (W.NumberInput("##replyCooldown", ref cooldown, EmoteReplySettings.MinimumCooldownSeconds, 3600, 1, Theme.S(160f), "seconds"))
+            if (W.NumberInput("##replyCooldown", ref cooldown, EmoteReplySettings.MinimumCooldownSeconds, EmoteReplySettings.MaximumCooldownSeconds, 1, Theme.S(160f), "seconds"))
             {
                 settings.PerPlayerCooldownSeconds = cooldown;
                 Changed();
@@ -92,7 +91,7 @@ internal sealed partial class MainWindow
                 var entry = settings.Overrides[i];
                 ImGui.PushID(i);
                 ImGui.AlignTextToFramePadding();
-                ImGui.TextUnformatted(entry.When);
+                ImGui.TextUnformatted(entry.When ?? string.Empty);
                 ImGui.SameLine();
                 ImGui.TextColored(Theme.Faint, "→");
                 ImGui.SameLine();
@@ -155,7 +154,7 @@ internal sealed partial class MainWindow
         var canonical = Service.Commands.Canonicalize(whenCommand);
         foreach (var entry in settings.Overrides)
         {
-            if (Service.Commands.Canonicalize(entry.When) == canonical)
+            if (!string.IsNullOrWhiteSpace(entry.When) && Service.Commands.Canonicalize(entry.When.Trim()) == canonical)
                 return $"{whenCommand} already has a reply set.";
         }
         return null;

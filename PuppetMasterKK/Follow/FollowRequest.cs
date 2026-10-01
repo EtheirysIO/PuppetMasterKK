@@ -31,42 +31,51 @@ internal static class FollowParser
 {
     private static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(100);
     private static readonly string[] SelfWords = ["me", "myself"];
+    // "First Last@World" is never longer than this.
+    private const int MaxShownName = 40;
 
-    // Compiled patterns for the current words, rebuilt only when the words change.
-    private static string cachedKey = "\u0000";
-    private static Regex? followPattern;
-    private static Regex? comePattern;
-    private static Regex? mimicPattern;
-    private static Regex? stopPattern;
+    // Patterns for the words in use. Follow and Mimic parse every line with their own words, so both sets stay cached.
+    private sealed record Patterns(Regex? Follow, Regex? Come, Regex? Mimic, Regex? Stop);
+    private const int MaxCachedPatterns = 8;
+    private static readonly Dictionary<string, Patterns> Cache = new(StringComparer.Ordinal);
 
     public static FollowRequest Parse(string message, string callNames, string followWords, string stopWords, string comeWords = "",
                                       string mimicWords = "")
     {
-        var key = callNames + "\u0001" + followWords + "\u0001" + stopWords + "\u0001" + comeWords + "\u0001" + mimicWords;
-        if (key != cachedKey)
-        {
-            followPattern = BuildPattern(callNames, followWords, withTarget: true);
-            comePattern = BuildPattern(callNames, comeWords, withTarget: false);
-            mimicPattern = BuildPattern(callNames, mimicWords, withTarget: true);
-            stopPattern = BuildPattern(callNames, stopWords, withTarget: false);
-            cachedKey = key;
-        }
-
+        var patterns = PatternsFor(callNames, followWords, stopWords, comeWords, mimicWords);
         try
         {
-            if (stopPattern?.IsMatch(message) == true)
+            if (patterns.Stop?.IsMatch(message) == true)
                 return new FollowRequest(FollowRequestKind.Stop, string.Empty);
-            if (comePattern?.IsMatch(message) == true)
+            if (patterns.Come?.IsMatch(message) == true)
                 return new FollowRequest(FollowRequestKind.Come, string.Empty);
-            if (Named(mimicPattern, message) is { } mimicked)
+            if (Named(patterns.Mimic, message) is { } mimicked)
                 return new FollowRequest(FollowRequestKind.Mimic, mimicked);
-            if (Named(followPattern, message) is { } followed)
+            if (Named(patterns.Follow, message) is { } followed)
                 return new FollowRequest(FollowRequestKind.Follow, followed);
         }
         catch (RegexMatchTimeoutException)
         {
         }
         return FollowRequest.None;
+    }
+
+    private static Patterns PatternsFor(string callNames, string followWords, string stopWords, string comeWords, string mimicWords)
+    {
+        var key = callNames + "\u0001" + followWords + "\u0001" + stopWords + "\u0001" + comeWords + "\u0001" + mimicWords;
+        lock (Cache)
+        {
+            if (Cache.TryGetValue(key, out var cached))
+                return cached;
+            if (Cache.Count >= MaxCachedPatterns)
+                Cache.Clear();
+            var built = new Patterns(BuildPattern(callNames, followWords, withTarget: true),
+                                     BuildPattern(callNames, comeWords, withTarget: false),
+                                     BuildPattern(callNames, mimicWords, withTarget: true),
+                                     BuildPattern(callNames, stopWords, withTarget: false));
+            Cache[key] = built;
+            return built;
+        }
     }
 
     // The player a "<call> <word> <player|me>" line names ("" for me), or null when it names nobody.
@@ -127,18 +136,29 @@ internal static class FollowParser
 
     // Finds the requested player among those nearby: the full name (and world, when given) exactly, ignoring case;
     // or, for a single word, the one nearby player whose first name it is. -1 when there's no match or it's ambiguous.
-    public static int FindNearby(PlayerName requested, IReadOnlyList<PlayerName> nearby)
+    public static int FindNearby(PlayerName requested, IReadOnlyList<PlayerName> nearby) => FindNearby(requested, nearby, out _);
+
+    // As above; ambiguous is true when -1 is because several players match.
+    public static int FindNearby(PlayerName requested, IReadOnlyList<PlayerName> nearby, out bool ambiguous)
     {
+        ambiguous = false;
         if (requested.Name.Length == 0)
             return -1;
+        var exact = -1;
         for (var i = 0; i < nearby.Count; i++)
         {
-            if (nearby[i].Name.Equals(requested.Name, StringComparison.OrdinalIgnoreCase) &&
-                (requested.World.Length == 0 || nearby[i].World.Equals(requested.World, StringComparison.OrdinalIgnoreCase)))
-                return i;
+            if (!nearby[i].Name.Equals(requested.Name, StringComparison.OrdinalIgnoreCase) ||
+                (requested.World.Length > 0 && !nearby[i].World.Equals(requested.World, StringComparison.OrdinalIgnoreCase)))
+                continue;
+            if (exact >= 0)
+            {
+                ambiguous = true; // the same name on two worlds: don't guess
+                return -1;
+            }
+            exact = i;
         }
-        if (requested.Name.Contains(' ') || requested.World.Length > 0)
-            return -1;
+        if (exact >= 0 || requested.Name.Contains(' ') || requested.World.Length > 0)
+            return exact;
 
         var found = -1;
         for (var i = 0; i < nearby.Count; i++)
@@ -148,7 +168,10 @@ internal static class FollowParser
             if (!first.Equals(requested.Name, StringComparison.OrdinalIgnoreCase))
                 continue;
             if (found >= 0)
-                return -1; // two people share that first name: don't guess
+            {
+                ambiguous = true; // two people share that first name: don't guess
+                return -1;
+            }
             found = i;
         }
         return found;
@@ -165,11 +188,41 @@ internal static class FollowParser
     }
 
     // The not-nearby reply: <target> becomes the name they asked for. Angle brackets in that name (someone else's
-    // text) are dropped so it can't become a game placeholder.
+    // text) are dropped so it can't become a game placeholder, and it's cut to a name's length so a long one can't
+    // push the tell over the game's limit.
     public static string FormatReply(string template, string target)
     {
         var safe = target.Replace("<", string.Empty).Replace(">", string.Empty)
-                         .Replace("＜", string.Empty).Replace("＞", string.Empty);
+                         .Replace("＜", string.Empty).Replace("＞", string.Empty).Trim();
+        if (safe.Length > MaxShownName)
+            safe = safe[..MaxShownName].TrimEnd();
         return template.Replace(FollowSettings.TargetPlaceholder, safe, StringComparison.OrdinalIgnoreCase).Trim();
     }
+}
+
+// "Not again before then", per key (a player's "Name@World"): emote replies, not-nearby tells. Framework thread only.
+// Expired entries are dropped once there are many, so a crowd can't grow it without end.
+internal sealed class Cooldowns
+{
+    private const int PruneAt = 128;
+    private readonly Dictionary<string, long> until = new(StringComparer.OrdinalIgnoreCase);
+
+    public bool IsWaiting(string key, long now) => until.TryGetValue(key, out var end) && now < end;
+
+    public void Start(string key, long now, long duration)
+    {
+        until[key] = now + duration;
+        if (until.Count < PruneAt)
+            return;
+        var expired = new List<string>();
+        foreach (var (entry, end) in until)
+        {
+            if (end <= now)
+                expired.Add(entry);
+        }
+        foreach (var entry in expired)
+            until.Remove(entry);
+    }
+
+    public void Clear() => until.Clear();
 }

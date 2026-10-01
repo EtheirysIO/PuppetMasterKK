@@ -32,19 +32,22 @@ namespace PuppetMasterKK
     {
         public int ChatType { get; set; }
         public string Name { get; set; } = string.Empty;
-        //---- Deprecated, setting will be managed per Reaction
+        // Before v1, channels were switched on here. Read once to migrate, never written again.
         public bool Enabled { get; set; }
+        public bool ShouldSerializeEnabled() => false;
     }
 
     public class Reaction
     {
         public const string DefaultTriggerPhrase = "please do";
+        public const int MaxCooldownSeconds = 86400;
 
         public bool Enabled { get; set; } = false;
         public string Name { get; set; } = string.Empty;
         public string TriggerPhrase { get; set; } = DefaultTriggerPhrase;
-        // Legacy field. False is normalized into default blacklist entries on load.
+        // Legacy field. False is normalized into default blacklist entries on load, so it's never written again.
         public bool AllowSit { get; set; } = true;
+        public bool ShouldSerializeAllowSit() => false;
         public bool MotionOnly { get; set; } = true;
         public int CooldownSeconds { get; set; } = 0;
         // QueueEveryTrigger preserves the behavior of configurations created before execution policies existed.
@@ -72,6 +75,19 @@ namespace PuppetMasterKK
         public Regex? Rx;
         [JsonIgnore]
         public Regex? CustomRx;
+
+        // A new trigger with the user's "New triggers" defaults.
+        public static Reaction FromDefaults(Configuration configuration, string name = "Trigger")
+        {
+            return CreateDefault(
+                name,
+                configuration.DefaultCommandWhitelist,
+                configuration.DefaultCommandBlacklist,
+                configuration.DefaultAllowAllCommands,
+                configuration.DefaultMotionOnly,
+                configuration.DefaultEnabledChannels,
+                configuration.DefaultProtections);
+        }
 
         public static Reaction CreateDefault(
             string name = "Trigger",
@@ -128,6 +144,7 @@ namespace PuppetMasterKK
 
         // Below this, two players who both answer emotes would keep answering each other.
         public const int MinimumCooldownSeconds = 3;
+        public const int MaximumCooldownSeconds = 3600;
     }
 
     // Mimic mode: "<call name> <mimic word> <player|me>" makes you copy that player's emotes, aimed at whoever they aim
@@ -157,6 +174,7 @@ namespace PuppetMasterKK
         public string NotNearbyMessage { get; set; } = "Sorry, I don't see <target> near me.";
 
         public const float MaxDelaySeconds = 10f;
+        public const float MaxRepeatGuardSeconds = 30f;
     }
 
     public class EmoteOverride
@@ -207,7 +225,7 @@ namespace PuppetMasterKK
     {
         public int Version { get; set; } = ConfigVersion.CURRENT;
 
-        //---- Version 0 Config [DEPRECATED, WILL NOT BE USED]
+        //---- Version 0 Config: read once to migrate into a reaction, never written again.
         public string TriggerPhrase { get; set; } = "please do";
         public bool AllowSit { get; set; } = false;
         public bool MotionOnly { get; set; } = true;
@@ -216,12 +234,24 @@ namespace PuppetMasterKK
         public string CustomPhrase { get; set; } = string.Empty;
         public string ReplaceMatch { get; set; } = string.Empty;
         public string TestInput { get; set; } = string.Empty;
+        // Channels switched on (v0). Channels are per reaction since v1.
+        public List<ChannelSetting> EnabledChannels { get; set; } = [];
+        public bool ShouldSerializeTriggerPhrase() => false;
+        public bool ShouldSerializeAllowSit() => false;
+        public bool ShouldSerializeMotionOnly() => false;
+        public bool ShouldSerializeAllowAllCommands() => false;
+        public bool ShouldSerializeUseRegex() => false;
+        public bool ShouldSerializeCustomPhrase() => false;
+        public bool ShouldSerializeReplaceMatch() => false;
+        public bool ShouldSerializeTestInput() => false;
+        public bool ShouldSerializeEnabledChannels() => false;
 
         //---- Version 1 Config
-        public List<ChannelSetting> EnabledChannels { get; set; } = [];
         public List<ChannelSetting> CustomChannels { get; set; } = [];
         public List<Reaction> Reactions { get; set; } = [];
         public int CurrentReactionEdit = -1;
+        // Message log capture: this session only, never saved.
+        [JsonIgnore]
         public bool DebugLogTypes { get; set; } = false;
         public bool ShowReactionNotifications { get; set; } = true;
         public bool ShowSuppressedReactionNotifications { get; set; } = false;
@@ -234,7 +264,8 @@ namespace PuppetMasterKK
         public bool DefaultMotionOnly { get; set; } = true;
         public ProtectionSettings DefaultProtections { get; set; } = new();
         public List<int> DefaultEnabledChannels { get; set; } = [];
-        public int MaxRegexLength { get; set; } = 1000;
+        public int MaxRegexLength { get; set; } = DefaultMaxRegexLength;
+        public const int DefaultMaxRegexLength = 1000;
 
         //---- Version 4 Config
         // Your own chat lines never trigger reactions (stops a reaction from re-triggering itself).

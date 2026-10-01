@@ -4,7 +4,6 @@ using Dalamud.Hooking;
 using ECommons.Automation;
 using Lumina.Excel.Sheets;
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 
 namespace PuppetMasterKK;
@@ -22,8 +21,8 @@ internal sealed class EmoteReplies : IDisposable
     private delegate void OnEmoteDelegate(ulong unk, ulong instigatorAddress, ushort emoteId, ulong targetId, ulong unk2);
 
     private readonly Hook<OnEmoteDelegate>? hook;
-    // Framework thread only. Player "Name@World" -> earliest timestamp we'll answer them again.
-    private readonly Dictionary<string, long> nextReply = new(StringComparer.OrdinalIgnoreCase);
+    // Framework thread only. Player "Name@World" -> when we'll answer them again.
+    private readonly Cooldowns nextReply = new();
     private volatile bool disposed;
 
     public string? UnavailableReason { get; }
@@ -121,9 +120,9 @@ internal sealed class EmoteReplies : IDisposable
                 return;
 
             // Per-player cooldown: two players who both reply to emotes stop after one round.
-            var key = $"{sender.Name}@{sender.World}";
+            var key = sender.Key;
             var now = Stopwatch.GetTimestamp();
-            if (nextReply.TryGetValue(key, out var allowedAt) && now < allowedAt)
+            if (nextReply.IsWaiting(key, now))
                 return;
 
             // Replaced by another emote, or not answered at all.
@@ -133,19 +132,18 @@ internal sealed class EmoteReplies : IDisposable
             var canonical = Service.Commands.Canonicalize(command);
             foreach (var blockedEmote in settings.BlockedEmotes)
             {
-                if (Service.Commands.Canonicalize(blockedEmote) == canonical)
+                if (!string.IsNullOrWhiteSpace(blockedEmote) && Service.Commands.Canonicalize(blockedEmote) == canonical)
                     return;
             }
 
             if (!CommandRateLimiter.Shared.TryAcquire(now))
                 return;
 
-            nextReply[key] = now + Math.Max(EmoteReplySettings.MinimumCooldownSeconds, settings.PerPlayerCooldownSeconds) * Stopwatch.Frequency;
-            PruneCooldowns(now);
+            nextReply.Start(key, now, Math.Max(EmoteReplySettings.MinimumCooldownSeconds, settings.PerPlayerCooldownSeconds) * Stopwatch.Frequency);
 
             if (settings.TargetBack)
                 Service.TargetManager.Target = instigator;
-            Chat.SendMessage(settings.MotionOnly ? $"{command} motion" : command);
+            Chat.SendMessage(CommandPolicy.EmoteLine(command, settings.MotionOnly));
             RepliesSent++;
         }
         catch (Exception ex)
@@ -159,19 +157,5 @@ internal sealed class EmoteReplies : IDisposable
         var command = Service.DataManager.GetExcelSheet<Emote>()
             .GetRowOrDefault(emoteId)?.TextCommand.ValueNullable?.Command.ExtractText();
         return string.IsNullOrWhiteSpace(command) || !command.StartsWith('/') ? null : command;
-    }
-
-    private void PruneCooldowns(long now)
-    {
-        if (nextReply.Count < 128)
-            return;
-        var expired = new List<string>();
-        foreach (var (key, allowedAt) in nextReply)
-        {
-            if (allowedAt <= now)
-                expired.Add(key);
-        }
-        foreach (var key in expired)
-            nextReply.Remove(key);
     }
 }

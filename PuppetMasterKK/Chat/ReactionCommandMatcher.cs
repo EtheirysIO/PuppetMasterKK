@@ -18,6 +18,12 @@ internal static class ReactionCommandMatcher
         return reaction.UseRegex ? reaction.CustomRx : reaction.Rx;
     }
 
+    // The command template that goes with SelectPattern.
+    public static string SelectReplacement(Reaction reaction)
+    {
+        return reaction.UseRegex ? reaction.ReplaceMatch : PhraseReplacement;
+    }
+
     public static ReactionMatchStatus TryGenerateCommand(
         Regex? pattern,
         string message,
@@ -152,8 +158,25 @@ internal static class ReactionCommandMatcher
 
     // "/wait" from the reaction's own commands is a pause; from a sender's text (the phrase mode's "/$1$2") it has to
     // be allowed like any command, or a stranger could keep a reaction busy for minutes.
-    public static bool TemplateHasWait(string replacement)
-        => replacement.Contains(CommandPolicy.WaitCommand, StringComparison.OrdinalIgnoreCase);
+    // Sender text can't add lines (SanitizeIncoming turns line breaks into spaces), so line i of the generated
+    // commands always comes from line i of the template: only a template line that is itself "/wait" is the trigger's
+    // own pause. A "/wait 60" built from a capture has to be allowed like any other command.
+    public static bool[] TemplateWaitLines(string replacement)
+    {
+        var lines = SplitLines(replacement);
+        var waits = new bool[lines.Length];
+        for (var i = 0; i < lines.Length; i++)
+            waits[i] = CommandCatalog.Normalize(FormatCommand(lines[i]).Main) == CommandPolicy.WaitCommand;
+        return waits;
+    }
+
+    public static bool IsTemplateWait(bool[] waitLines, int lineIndex)
+        => lineIndex >= 0 && lineIndex < waitLines.Length && waitLines[lineIndex];
+
+    // The one way commands (and templates) are split into lines, so line numbers always agree.
+    public static string[] SplitLines(string text) => text.Split(LineBreaks, StringSplitOptions.None);
+
+    private static readonly string[] LineBreaks = ["\r\n", "\r", "\n"];
 }
 
 public struct ParsedTextCommand

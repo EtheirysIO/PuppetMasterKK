@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text;
 
 namespace PuppetMasterKK;
@@ -17,7 +18,8 @@ internal enum CommandKind
     Plugin,
     // /follow: Follow mode's alone. Triggers never send it, not even without protections.
     FollowOnly,
-    // Never runs, whatever the reaction allows (logout, shutdown, PuppetMasterKK's and Dalamud's own commands).
+    // Never runs while the trigger has protections (logout, shutdown, PuppetMasterKK's and Dalamud's own commands),
+    // whatever its Allowed list says. Only "no protections" lets these through.
     Blocked,
 }
 
@@ -26,9 +28,6 @@ internal enum CommandKind
 // check time because plugins come and go.
 internal sealed class CommandCatalog
 {
-    // English names of the commands that never run. The catalog maps them to the client's own names (the game
-    // knows each command by its English name as well), so the block holds on every client language.
-    private static readonly string[] AlwaysBlockedForms = ["/logout", "/shutdown", "/puppetmaster", "/puppetmasterkk", "/pmkk"];
     // /follow belongs to Follow mode (with its own sender, channel and target rules): triggers never send it.
     public const string FollowCommand = "/follow";
 
@@ -64,7 +63,7 @@ internal sealed class CommandCatalog
                 groups.TryAdd(main, group.Key);
             }
         }
-        foreach (var form in AlwaysBlockedForms)
+        foreach (var form in CommandPolicy.AlwaysBlockedForms)
             blocked.Add(Canonicalize(form));
         follow = Canonicalize(FollowCommand);
         foreach (var group in ProtectionGroups.Risky)
@@ -127,10 +126,17 @@ internal sealed class CommandCatalog
 
     public CommandKind Classify(string command, Func<string, bool>? isPluginCommand = null)
     {
-        var main = Canonicalize(command);
-        if (main.Equals(follow, StringComparison.OrdinalIgnoreCase) || Normalize(command) == FollowCommand)
+        var literal = Normalize(command);
+        var main = Canonicalize(literal);
+        // /follow and the always-blocked commands are also caught behind look-alikes (full-width letters, invisible
+        // characters), in case the game reads those as the real command. Nothing is ever allowed that way: every
+        // other kind comes from the line exactly as it will be sent.
+        // An invisible character is either dropped or ends the name: whichever the game does, both are checked.
+        var unmasked = Unmask(literal, cutAtInvisible: false);
+        var cut = Unmask(literal, cutAtInvisible: true);
+        if (IsFollow(literal) || IsFollow(unmasked) || IsFollow(cut))
             return CommandKind.FollowOnly;
-        if (IsAlwaysBlocked(main) || CommandPolicy.IsAlwaysBlocked(Normalize(command)))
+        if (IsBlockedName(literal) || IsBlockedName(unmasked) || IsBlockedName(cut))
             return CommandKind.Blocked;
         if (emotes.Contains(main))
             return CommandKind.Emote;
@@ -140,9 +146,43 @@ internal sealed class CommandCatalog
             return CommandKind.Sensitive;
         if (canonical.ContainsKey(main))
             return CommandKind.Game;
-        if (isPluginCommand != null && isPluginCommand(Normalize(command)))
+        if (isPluginCommand != null && isPluginCommand(literal))
             return CommandKind.Plugin;
         return CommandKind.Unknown;
+    }
+
+    private bool IsFollow(string name) => name == FollowCommand || Canonicalize(name) == follow;
+
+    private bool IsBlockedName(string name) => CommandPolicy.IsAlwaysBlocked(name) || IsAlwaysBlocked(Canonicalize(name));
+
+    // The command name as the game might read it: full-width forms folded to ASCII, invisible characters dropped,
+    // cut at the first space.
+    private static string Unmask(string normalized, bool cutAtInvisible)
+    {
+        var builder = new StringBuilder(normalized.Length);
+        foreach (var original in normalized)
+        {
+            var c = original switch
+            {
+                >= '\uFF01' and <= '\uFF5E' => (char)(original - 0xFEE0),
+                '\u3000' => ' ',
+                _ => original,
+            };
+            if (char.IsWhiteSpace(c))
+            {
+                if (builder.Length > 0)
+                    break;
+                continue;
+            }
+            if (char.IsControl(c) || CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.Format)
+            {
+                if (cutAtInvisible && builder.Length > 0)
+                    break;
+                continue;
+            }
+            builder.Append(c);
+        }
+        return builder.ToString().ToLowerInvariant();
     }
 
     public HashSet<string> CanonicalSet(IEnumerable<string> commands)
@@ -161,11 +201,19 @@ internal static class CommandPolicy
 {
     public const string WaitCommand = "/wait";
 
+    // An emote line, with "motion" when the emote's chat message should be hidden.
+    public static string EmoteLine(string command, bool motionOnly) => motionOnly ? $"{command} motion" : command;
+
+    // English names of the commands that never run. The catalog also maps them to the client's own names (the game
+    // knows each command by its English name as well), so the block holds on every client language.
+    public static readonly string[] AlwaysBlockedForms = ["/logout", "/shutdown", "/puppetmaster", "/puppetmasterkk", "/pmkk"];
+
     // Blocked even when a reaction allows them: they log you out, close the game, or reconfigure PuppetMasterKK or
     // Dalamud itself (a stranger could otherwise turn every disabled reaction back on).
     public static bool IsAlwaysBlocked(string canonicalCommand)
     {
-        return canonicalCommand is "/logout" or "/shutdown" or "/puppetmaster" or "/puppetmasterkk" or "/pmkk" or "/follow" ||
+        return canonicalCommand == CommandCatalog.FollowCommand ||
+               Array.Exists(AlwaysBlockedForms, form => form.Equals(canonicalCommand, StringComparison.OrdinalIgnoreCase)) ||
                canonicalCommand.StartsWith("/xl", StringComparison.OrdinalIgnoreCase);
     }
 

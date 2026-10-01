@@ -20,7 +20,8 @@ internal enum Page
 
 /// <summary>
 /// The PuppetMasterKK window (phys1ksUI shell). The sidebar picks the page: Reactions (list and editor), Emote replies,
-/// Activity (what's running and waiting), Logs (captured chat) and Settings. Each page lives in its own partial file.
+/// Follow mode, Mimic, Activity (what's running and waiting), Logs (captured chat) and Settings. Each page lives in its
+/// own partial file.
 /// </summary>
 internal sealed partial class MainWindow : KitWindow, IDisposable
 {
@@ -208,6 +209,7 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
     protected override void DrawOverlays()
     {
         DrawReactionDialogs();
+        DrawSettingsDialogs();
         DrawChannelPicker();
     }
 
@@ -224,11 +226,7 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
         return end < 0 ? text : text[..end] + " …";
     }
 
-    private static void CancelAllRunning()
-    {
-        foreach (var reaction in Config.Reactions)
-            ChatHandler.CancelReaction(reaction);
-    }
+    private static void CancelAllRunning() => ChatHandler.CancelAll(Config);
 
     /// <summary>A short line of help text under a control.</summary>
     private static void Hint(string text) => W.TextWrapped(text, Theme.Faint);
@@ -237,4 +235,9 @@ internal sealed partial class MainWindow : KitWindow, IDisposable
     private static void Label(string text) => ImGui.TextColored(Theme.Dim, text);
 
     private static void Gap(float px = 6f) => ImGui.Dummy(new Vector2(0f, Theme.S(px)));
+
+    /// <summary>The "Hide emote text" switch (triggers, new-trigger defaults, Emote replies, Mimic).</summary>
+    private static bool HideEmoteTextToggle(string id, ref bool motionOnly)
+        => W.Toggle($"Hide emote text##{id}", ref motionOnly,
+                    tooltip: "The animation still plays, but the emote message isn't posted in chat");
 }

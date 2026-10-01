@@ -19,6 +19,8 @@ internal sealed partial class MainWindow
     // Custom channel numbers being typed, applied when the field is left (an invalid one is put back).
     private readonly Dictionary<ChannelSetting, int> channelIdDrafts = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ChannelSetting, string> channelIdErrors = new(ReferenceEqualityComparer.Instance);
+    private ChannelSetting? channelToDelete;
+    private bool confirmDeleteChannel;
 
     private void DrawSettingsTabs()
     {
@@ -94,8 +96,7 @@ internal sealed partial class MainWindow
         using (W.Card("defaultEmoteText", "Emotes"))
         {
             var motionOnly = Config.DefaultMotionOnly;
-            if (W.Toggle("Hide emote text##defaultMotionOnly", ref motionOnly,
-                         tooltip: "The animation still plays, but the emote message isn't posted in chat"))
+            if (HideEmoteTextToggle("defaultMotionOnly", ref motionOnly))
             {
                 Config.DefaultMotionOnly = motionOnly;
                 Changed();
@@ -107,43 +108,14 @@ internal sealed partial class MainWindow
             if (DrawProtectionGroups("defaults", Config.DefaultProtections))
                 Changed();
             Gap();
-            Label("Which commands can run?");
-            var mode = Config.DefaultAllowAllCommands ? 1 : 0;
-            if (W.Segmented("##defaultCommandMode", CommandModes, ref mode, W.SegmentedWidth(CommandModes)))
-            {
-                if (mode == 1)
-                {
-                    allowAllTarget = null; // null: the defaults for new reactions
-                    confirmAllowAll = true;
-                }
-                else
-                {
-                    Config.DefaultAllowAllCommands = false;
-                    Changed();
-                }
-            }
-            Gap();
-            W.Heading(Config.DefaultAllowAllCommands ? "Also allowed (chat and plugin commands)" : "Allowed");
-            if (StringListEditor("defaultAllow", Config.DefaultCommandWhitelist, ref defaultAllowInput, "/command",
-                                 Config.DefaultAllowAllCommands ? "None." : "None. Emotes still run.",
-                                 input => PluginUiLogic.AddCommandRule(Config.DefaultCommandWhitelist, Config.DefaultCommandBlacklist, input)))
-                Changed();
-            Gap();
-            W.Heading("Blocked");
-            if (StringListEditor("defaultBlock", Config.DefaultCommandBlacklist, ref defaultBlockInput, "/command", "Nothing blocked.",
-                                 input => PluginUiLogic.AddCommandRule(Config.DefaultCommandBlacklist, Config.DefaultCommandWhitelist, input)))
+            if (DrawCommandLists(null, Config.DefaultCommandWhitelist, Config.DefaultCommandBlacklist, ref defaultAllowInput,
+                                 ref defaultBlockInput))
                 Changed();
         }
 
-        var count = Config.DefaultEnabledChannels.Count;
-        using (W.Card("defaultChannels", "Channels", count == 1 ? "1 picked" : $"{count} picked"))
-        {
-            DrawChannelChips(Config.DefaultEnabledChannels, "New triggers start without channels.");
-            Gap(2f);
-            if (W.SecondaryButton("Pick channels##pickDefaultChannels"))
-                OpenChannelPicker("Channels for new triggers", Config.DefaultEnabledChannels, null);
-            Hint("A trigger made from the message log listens only to the channel that message came in on.");
-        }
+        DrawChannelsCard("defaultChannels", Config.DefaultEnabledChannels, "New triggers start without channels.",
+                         "Channels for new triggers",
+                         hint: "A trigger made from the message log listens only to the channel that message came in on.");
     }
 
     private void DrawCustomChannelSettings()
@@ -153,7 +125,6 @@ internal sealed partial class MainWindow
             W.TextWrapped("Chat channels the game uses that Dalamud doesn't have a name for. Find their numbers in the message log; the # button on a message adds its channel here.", Theme.Dim);
             Gap();
 
-            var remove = -1;
             var channels = Config.CustomChannels;
             var shown = 0;
             for (var i = 0; i < channels.Count; i++)
@@ -183,7 +154,10 @@ internal sealed partial class MainWindow
                 }
                 ImGui.SameLine(0f, Theme.Space.Tight);
                 if (W.IconButton(FontAwesomeIcon.Trash, "##deleteChannel", "Delete this channel", danger: true))
-                    remove = i;
+                {
+                    channelToDelete = channel;
+                    confirmDeleteChannel = true;
+                }
 
                 if (channelIdErrors.TryGetValue(channel, out var error))
                     W.TextWrapped(error, Theme.Negative);
@@ -191,21 +165,6 @@ internal sealed partial class MainWindow
             }
             if (shown == 0)
                 ImGui.TextColored(Theme.Faint, "No custom channels.");
-
-            if (remove >= 0)
-            {
-                var channel = channels[remove];
-                foreach (var reaction in Config.Reactions)
-                {
-                    if (reaction.EnabledChannels.Remove(channel.ChatType))
-                        ChatHandler.InvalidateReaction(reaction, false);
-                }
-                Config.DefaultEnabledChannels.Remove(channel.ChatType);
-                channels.RemoveAt(remove);
-                channelIdDrafts.Remove(channel);
-                channelIdErrors.Remove(channel);
-                Changed();
-            }
 
             W.Divider(Theme.S(6f));
             Label("Add a channel");
@@ -253,18 +212,53 @@ internal sealed partial class MainWindow
         if (previous == id)
             return;
         channel.ChatType = id;
-        // Reactions listening to the old number follow it to the new one.
-        foreach (var reaction in Config.Reactions)
+        // Everything listening to the old number follows it to the new one.
+        foreach (var (list, reaction) in ChannelLists())
         {
-            if (!reaction.EnabledChannels.Remove(previous))
+            if (!list.Remove(previous))
                 continue;
-            if (!reaction.EnabledChannels.Contains(id))
-                reaction.EnabledChannels.Add(id);
-            ChatHandler.InvalidateReaction(reaction, false);
+            if (!list.Contains(id))
+                list.Add(id);
+            if (reaction != null)
+                ChatHandler.InvalidateReaction(reaction, false);
         }
-        if (Config.DefaultEnabledChannels.Remove(previous) && !Config.DefaultEnabledChannels.Contains(id))
-            Config.DefaultEnabledChannels.Add(id);
         Changed();
+    }
+
+    private void DeleteCustomChannel(ChannelSetting channel)
+    {
+        // Nothing keeps listening to a channel that's gone.
+        foreach (var (list, reaction) in ChannelLists())
+        {
+            if (list.Remove(channel.ChatType) && reaction != null)
+                ChatHandler.InvalidateReaction(reaction, false);
+        }
+        Config.CustomChannels.Remove(channel);
+        channelIdDrafts.Remove(channel);
+        channelIdErrors.Remove(channel);
+        Changed();
+    }
+
+    // Every list a channel can be picked in: each trigger's (paired with it, to invalidate), the new-trigger defaults,
+    // Follow mode's and Mimic's.
+    private static IEnumerable<(List<int> Channels, Reaction? Reaction)> ChannelLists()
+    {
+        foreach (var reaction in Config.Reactions)
+            yield return (reaction.EnabledChannels, reaction);
+        yield return (Config.DefaultEnabledChannels, null);
+        yield return (Config.Follow.Channels, null);
+        yield return (Config.Mimic.Channels, null);
+    }
+
+    private void DrawSettingsDialogs()
+    {
+        if (channelToDelete is { } channel &&
+            Modal.Confirm("Delete channel##confirmDeleteChannel", ref confirmDeleteChannel,
+                          $"Delete \"{ChannelName(channel.ChatType)}\"?", "Delete", danger: true,
+                          detail: "Triggers, Follow mode and Mimic stop listening to it."))
+            DeleteCustomChannel(channel);
+        if (!confirmDeleteChannel)
+            channelToDelete = null;
     }
 
     // images\icon.png next to the dll.

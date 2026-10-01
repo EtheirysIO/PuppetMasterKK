@@ -15,6 +15,7 @@ internal enum ReactionRejectionReason
 
 internal sealed class ReactionExecutionGate
 {
+    private static readonly TimeSpan MaxDelayStep = TimeSpan.FromDays(1);
     private ConditionalWeakTable<Reaction, State> states = new();
 
     public bool TryEnter(
@@ -83,8 +84,10 @@ internal sealed class ReactionExecutionGate
                     if (state.Running)
                         idleTask = state.Idle.Task;
                     else
-                        cooldownDelay = TimeSpan.FromSeconds(
-                            (state.NextAllowedTimestamp - nowTimestamp) / (double)Stopwatch.Frequency);
+                        // Task.Delay takes at most ~49 days: a longer cooldown is waited out in steps.
+                        cooldownDelay = TimeSpan.FromSeconds(Math.Min(
+                            (state.NextAllowedTimestamp - nowTimestamp) / (double)Stopwatch.Frequency,
+                            MaxDelayStep.TotalSeconds));
                 }
 
                 if (idleTask != null)

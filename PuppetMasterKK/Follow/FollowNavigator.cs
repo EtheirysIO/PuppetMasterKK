@@ -8,7 +8,8 @@ using System.Threading.Tasks;
 
 namespace PuppetMasterKK;
 
-// Walks to a player with vnavmesh (framework thread only), then hands over to Follow mode to target and follow them.
+// Walks to a player with vnavmesh (framework thread only: the path task completes on another thread, but its result
+// is only read in Tick), then hands over to Follow mode to target and follow them.
 // We ask vnavmesh for the path, round its corners (PathSmoothing) and give it back to follow, so the run is smooth.
 // New paths are worked out while still running on the old one and swapped in place: no stopping to think. It gives
 // up in combat, after a while, when they leave the zone, or when it keeps getting stuck.
@@ -214,6 +215,11 @@ internal static class FollowNavigator
                 GiveUp("no character");
                 return;
             }
+            if (Service.configuration?.Follow?.Enabled != true)
+            {
+                GiveUp("Follow mode is off");
+                return;
+            }
             var now = Stopwatch.GetTimestamp();
             if (Service.Condition[ConditionFlag.InCombat])
             {
@@ -245,7 +251,9 @@ internal static class FollowNavigator
             if (pending is { IsCompleted: true } done)
             {
                 pending = null;
-                var ran = done.IsCompletedSuccessfully && RunPath(done.Result, local.Position, local.Rotation);
+                if (done.IsFaulted)
+                    Service.PluginLog.Debug(done.Exception, "vnavmesh couldn't path there.");
+                var ran = done.IsCompletedSuccessfully && done.Result is { } path && RunPath(path, local.Position, local.Rotation);
                 if (!ran && ++retries > MaxRetries)
                 {
                     GiveUp("vnavmesh can't reach them");
@@ -282,8 +290,7 @@ internal static class FollowNavigator
         catch (Exception ex)
         {
             Service.PluginLog.Warning(ex, "Walking to {Target} failed.", who.Name);
-            Cancel();
-            FollowMode.ClearFollowing();
+            GiveUp("an error");
         }
     }
 }

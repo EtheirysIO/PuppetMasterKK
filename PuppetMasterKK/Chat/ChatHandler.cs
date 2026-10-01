@@ -47,17 +47,15 @@ namespace PuppetMasterKK
             bool ShowNotifications,
             bool ShowSuppressionNotifications,
             int CooldownSeconds,
-            HashSet<int> EnabledChannels,
             HashSet<string> CommandWhitelist,
             HashSet<string> CommandBlacklist,
-            SenderFilter Senders,
             Regex Pattern,
             string Replacement,
-            bool TemplateHasWait,
+            bool[] TemplateWaitLines,
             ProtectionSettings Protections,
             bool NoProtections);
 
-        private sealed record ChatEnvelope(XivChatType Type, string Message, List<ReactionSnapshot> Reactions);
+        private sealed record ChatEnvelope(string Message, List<ReactionSnapshot> Reactions);
         private sealed record PendingRetrigger(
             ReactionSnapshot Reaction,
             string Command,
@@ -78,10 +76,6 @@ namespace PuppetMasterKK
         private sealed class ErrorNotificationState
         {
             public long NextNotificationTimestamp;
-        }
-
-        public ChatHandler()
-        {
         }
 
         public static void Initialize()
@@ -129,6 +123,13 @@ namespace PuppetMasterKK
             errorNotifications = new ConditionalWeakTable<Reaction, ErrorNotificationState>();
             reactionControls = new ConditionalWeakTable<Reaction, ReactionControlState>();
             retriggerQueues = new ConditionalWeakTable<Reaction, BoundedRetriggerScheduler<PendingRetrigger>>();
+        }
+
+        // Every trigger: running ones stop, waiting ones are dropped.
+        public static void CancelAll(Configuration configuration)
+        {
+            foreach (var reaction in configuration.Reactions)
+                CancelReaction(reaction);
         }
 
         public static void CancelReaction(Reaction reaction)
@@ -190,7 +191,7 @@ namespace PuppetMasterKK
                 {
                     foreach (var reaction in envelope.Reactions)
                     {
-                        var task = DoCommandAsync(reaction, envelope.Type, envelope.Message, token);
+                        var task = DoCommandAsync(reaction, envelope.Message, token);
                         if (!task.IsCompletedSuccessfully)
                             Track(task);
                     }
@@ -208,10 +209,11 @@ namespace PuppetMasterKK
         {
             if (!reaction.Enabled)
                 return null;
-            var pattern = reaction.UseRegex ? reaction.CustomRx : reaction.Rx;
+            var pattern = ReactionCommandMatcher.SelectPattern(reaction);
             if (pattern == null)
                 return null;
             var control = reactionControls.GetValue(reaction, static _ => new ReactionControlState());
+            var replacement = ReactionCommandMatcher.SelectReplacement(reaction);
 
             return new ReactionSnapshot(
                 reaction,
@@ -224,13 +226,11 @@ namespace PuppetMasterKK
                 PluginUiLogic.ResolveNotificationSetting(reaction.ProgressNotifications, showNotifications),
                 PluginUiLogic.ResolveNotificationSetting(reaction.SuppressedNotifications, showSuppressionNotifications),
                 Math.Max(0, reaction.CooldownSeconds),
-                new HashSet<int>(reaction.EnabledChannels),
                 Service.Commands.CanonicalSet(reaction.CommandWhitelist),
                 Service.Commands.CanonicalSet(reaction.CommandBlacklist),
-                (reaction.Senders ?? SenderFilter.AnyoneFilter()).Clone(),
                 pattern,
-                reaction.UseRegex ? reaction.ReplaceMatch : Service.GetDefaultReplaceMatch(),
-                ReactionCommandMatcher.TemplateHasWait(reaction.UseRegex ? reaction.ReplaceMatch : Service.GetDefaultReplaceMatch()),
+                replacement,
+                ReactionCommandMatcher.TemplateWaitLines(replacement),
                 (reaction.Protections ?? new ProtectionSettings()).Clone(),
                 reaction.NoProtections);
         }
@@ -292,7 +292,7 @@ namespace PuppetMasterKK
                 for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
                 {
                     cancellation.Token.ThrowIfCancellationRequested();
-                    var textCommand = Service.FormatCommand(lines[lineIndex]);
+                    var textCommand = ReactionCommandMatcher.FormatCommand(lines[lineIndex]);
                     if (string.IsNullOrEmpty(textCommand.Main))
                         continue;
 
@@ -315,7 +315,8 @@ namespace PuppetMasterKK
                     if (CommandCatalog.Normalize(textCommand.Main) == CommandPolicy.WaitCommand)
                     {
                         // Plugin-internal pause, not a game command (see CommandPolicy.IsWaitAllowed).
-                        if (CommandPolicy.IsWaitAllowed(catalog, reaction.TemplateHasWait, reaction.CommandWhitelist,
+                        if (CommandPolicy.IsWaitAllowed(catalog, ReactionCommandMatcher.IsTemplateWait(reaction.TemplateWaitLines, lineIndex),
+                                                        reaction.CommandWhitelist,
                                                         reaction.CommandBlacklist, out _, reaction.NoProtections) &&
                             ReactionCommandMatcher.TryParseWaitSeconds(textCommand.Args, out var seconds))
                             await Task.Delay(TimeSpan.FromSeconds(seconds), cancellation.Token);
@@ -328,16 +329,10 @@ namespace PuppetMasterKK
                             // commands), before a send slot is taken: blocked lines must not use up the rate limit.
                             var allowed = await Service.Framework.RunOnFrameworkThread(() =>
                             {
-                                var kind = catalog.Classify(textCommand.Main, Service.IsPluginCommand);
-                                if (CommandPolicy.IsAllowed(
-                                        canonical,
-                                        kind,
-                                        reaction.CommandWhitelist,
-                                        reaction.CommandBlacklist,
-                                        reaction.AllowAllCommands,
-                                        out var permissionReason,
-                                        reaction.NoProtections,
-                                        Service.IsOpen(reaction.Protections, kind, canonical, textCommand.Main)))
+                                if (Service.IsCommandAllowed(textCommand.Main, reaction.CommandWhitelist,
+                                                             reaction.CommandBlacklist, reaction.AllowAllCommands,
+                                                             reaction.Protections, reaction.NoProtections,
+                                                             out var permissionReason))
                                     return true;
                                 Service.PluginLog.Debug("{Reaction}: {Command} blocked: {Reason}", reaction.Name, textCommand.Main, permissionReason);
                                 return false;
@@ -469,13 +464,7 @@ namespace PuppetMasterKK
                 {
                     if (pluginToken.IsCancellationRequested)
                         return;
-                    Service.NotificationManager.AddNotification(new Notification
-                    {
-                        Title = "PuppetMasterKK",
-                        Content = $"Trigger suppressed: {reaction.Name}\n{reasonText}.{countText}",
-                        Type = NotificationType.Warning,
-                        InitialDuration = TimeSpan.FromSeconds(4),
-                    });
+                    Service.Notify($"Trigger suppressed: {reaction.Name}\n{reasonText}.{countText}", NotificationType.Warning, 4);
                 });
             }
             catch (Exception) when (pluginToken.IsCancellationRequested)
@@ -505,13 +494,7 @@ namespace PuppetMasterKK
                 {
                     if (pluginToken.IsCancellationRequested)
                         return;
-                    Service.NotificationManager.AddNotification(new Notification
-                    {
-                        Title = "PuppetMasterKK",
-                        Content = $"Trigger failed: {reaction.Name}\n{error}",
-                        Type = NotificationType.Error,
-                        InitialDuration = TimeSpan.FromSeconds(5),
-                    });
+                    Service.Notify($"Trigger failed: {reaction.Name}\n{error}", NotificationType.Error, 5);
                 });
             }
             catch (Exception) when (pluginToken.IsCancellationRequested)
@@ -545,14 +528,9 @@ namespace PuppetMasterKK
                 {
                     if (Volatile.Read(ref shuttingDown) != 0 || pluginToken.IsCancellationRequested)
                         return;
-                    Service.NotificationManager.AddNotification(new Notification
-                    {
-                        Title = "PuppetMasterKK",
-                        Content = $"Trigger scheduler failed: {reaction.Name}\n{error}" +
-                                  (discarded > 0 ? $"\n{discarded} pending trigger(s) discarded." : string.Empty),
-                        Type = NotificationType.Error,
-                        InitialDuration = TimeSpan.FromSeconds(6),
-                    });
+                    Service.Notify($"Trigger scheduler failed: {reaction.Name}\n{error}" +
+                                   (discarded > 0 ? $"\n{discarded} pending trigger(s) discarded." : string.Empty),
+                                   NotificationType.Error, 6);
                 });
             }
             catch (Exception) when (pluginToken.IsCancellationRequested || Volatile.Read(ref shuttingDown) != 0)
@@ -605,9 +583,10 @@ namespace PuppetMasterKK
             });
         }
 
-        private static async Task DoCommandAsync(ReactionSnapshot reaction, XivChatType type, string message, CancellationToken pluginToken)
+        private static async Task DoCommandAsync(ReactionSnapshot reaction, string message, CancellationToken pluginToken)
         {
-            if (!reaction.EnabledChannels.Contains((int)type) || pluginToken.IsCancellationRequested ||
+            // Channels and senders were checked when the message came in; a later edit bumps the generation.
+            if (pluginToken.IsCancellationRequested ||
                 Volatile.Read(ref reaction.Control.Generation) != reaction.Generation)
                 return;
 
@@ -686,7 +665,7 @@ namespace PuppetMasterKK
                     reaction.Control.VisualizerId,
                     reaction.Name,
                     command);
-                var lines = MyRegex().Split(command);
+                var lines = ReactionCommandMatcher.SplitLines(command);
                 using var runCancellation = CancellationTokenSource.CreateLinkedTokenSource(pluginToken);
                 ActiveReactionCancellations[reaction.Source] = runCancellation;
                 try
@@ -754,25 +733,27 @@ namespace PuppetMasterKK
             if (drainer != null)
                 Track(drainer);
         }
-        public static void OnChatMessage(IHandleableChatMessage message)
-        {
-            OnChatMessage(message.LogKind, message.Timestamp, message.Sender, message.Message, message.IsHandled);
-        }
-        public static void OnChatMessage(XivChatType type, int timestamp, SeString sender, SeString message, bool isHandled)
+
+        // Game event: nothing may escape it.
+        public static void OnChatMessage(IHandleableChatMessage chatMessage)
         {
             if (Volatile.Read(ref shuttingDown) != 0)
                 return;
-            if (Service.configuration!.DebugLogTypes)
-            {
-                var prefix = int.TryParse(type.ToString(), out var number)?"[" + number + "]":"[" + ((int)type) + "][" + type + "]";
-                prefix += (sender.ToString().IsNullOrEmpty() ? "" : "<" + sender + "> ");
-                DebugLogBuffer.Add((int)type, $"[{DateTime.Now:HH:mm:ss}] {prefix} {message}", message.ToString());
-            }
-
-            if (isHandled) return;
-
             try
             {
+                var type = chatMessage.LogKind;
+                var sender = chatMessage.Sender;
+                var message = chatMessage.Message;
+                if (Service.configuration!.DebugLogTypes)
+                {
+                    var prefix = int.TryParse(type.ToString(), out var number)?"[" + number + "]":"[" + ((int)type) + "][" + type + "]";
+                    prefix += (sender.ToString().IsNullOrEmpty() ? "" : "<" + sender + "> ");
+                    DebugLogBuffer.Add((int)type, $"[{DateTime.Now:HH:mm:ss}] {prefix} {message}", message.ToString());
+                }
+
+                if (chatMessage.IsHandled)
+                    return;
+
                 // Follow mode first: a line it takes ("Ami follow") isn't also matched by the triggers.
                 if (FollowMode.TryHandle(type, sender, message))
                     return;
@@ -815,10 +796,7 @@ namespace PuppetMasterKK
             if (snapshots == null)
                 return;
 
-            dispatcher.Writer.TryWrite(new ChatEnvelope(type, message, snapshots));
+            dispatcher.Writer.TryWrite(new ChatEnvelope(message, snapshots));
         }
-
-        [GeneratedRegex("\r\n|\r|\n")]
-        private static partial Regex MyRegex();
     }
 }

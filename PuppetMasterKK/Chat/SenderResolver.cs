@@ -4,6 +4,8 @@ using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Game.Text.SeStringHandling.Payloads;
 using FFXIVClientStructs.FFXIV.Client.UI.Info;
+using Lumina.Excel;
+using Lumina.Excel.Sheets;
 using System;
 using System.Text;
 
@@ -42,7 +44,7 @@ internal static unsafe class SenderResolver
         {
             name = player.PlayerName;
             worldId = player.World.RowId;
-            world = player.World.ValueNullable?.Name.ExtractText() ?? string.Empty;
+            world = WorldName(player.World);
         }
         else
         {
@@ -59,7 +61,7 @@ internal static unsafe class SenderResolver
         if (isSelf && worldId == 0)
         {
             worldId = Service.PlayerState.HomeWorld.RowId;
-            world = Service.PlayerState.HomeWorld.ValueNullable?.Name.ExtractText() ?? string.Empty;
+            world = HomeWorldName();
         }
 
         var nearby = worldId != 0 ? FindNearbyPlayer(name, worldId) : null;
@@ -87,7 +89,9 @@ internal static unsafe class SenderResolver
         return false;
     }
 
-    private static string HomeWorldName() => Service.PlayerState.HomeWorld.ValueNullable?.Name.ExtractText() ?? string.Empty;
+    private static string HomeWorldName() => WorldName(Service.PlayerState.HomeWorld);
+
+    private static string WorldName(RowRef<World> world) => world.ValueNullable?.Name.ExtractText() ?? string.Empty;
 
     private static PlayerPayload? FirstPlayer(SeString text)
     {
@@ -103,7 +107,7 @@ internal static unsafe class SenderResolver
     {
         var name = character.Name.TextValue;
         var worldId = character.HomeWorld.RowId;
-        var world = character.HomeWorld.ValueNullable?.Name.ExtractText() ?? string.Empty;
+        var world = WorldName(character.HomeWorld);
         var flags = character.StatusFlags;
         return new SenderInfo(
             name,
@@ -145,10 +149,13 @@ internal static unsafe class SenderResolver
 
     private static bool IsInPartyList(string name, uint worldId)
     {
+        // A name without a world could be anyone's.
+        if (worldId == 0)
+            return false;
         foreach (var member in Service.PartyList)
         {
             if (member.Name.TextValue.Equals(name, StringComparison.Ordinal) &&
-                (worldId == 0 || member.World.RowId == worldId))
+                member.World.RowId == worldId)
                 return true;
         }
         return false;
@@ -172,7 +179,7 @@ internal static unsafe class SenderResolver
         var builder = new StringBuilder(text.Length);
         foreach (var c in text)
         {
-            if (c is >= '' and <= '')
+            if (c is >= '\uE000' and <= '\uF8FF')
                 continue;
             builder.Append(c);
         }

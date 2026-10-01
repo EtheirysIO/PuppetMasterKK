@@ -1,4 +1,5 @@
 using Dalamud.Game.Command;
+using Dalamud.Interface.ImGuiNotification;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using System;
@@ -11,7 +12,6 @@ namespace PuppetMasterKK
 {
     public class Plugin : IDalamudPlugin
     {
-        public static String Name => "PuppetMasterKK";
         // Its own commands, so it can be installed next to the old Puppet Master without the two fighting over one.
         private const String CommandName = "/puppetmasterkk";
         private const String ShortCommandName = "/pmkk";
@@ -20,7 +20,9 @@ namespace PuppetMasterKK
         internal EmoteReplies? emoteReplies;
 
         private bool commandRegistered;
+        private bool shortCommandRegistered;
         private bool chatSubscribed;
+        private bool logoutSubscribed;
         private bool uiSubscribed;
         private bool chatHandlerStarted;
         private bool ecommonsInitialized;
@@ -57,36 +59,35 @@ namespace PuppetMasterKK
                 emoteReplies = new EmoteReplies();
                 if (Service.CopycatImportedEnabled)
                 {
-                    Service.NotificationManager.AddNotification(new Dalamud.Interface.ImGuiNotification.Notification
-                    {
-                        Title = "PuppetMasterKK",
-                        Content = "Emote replies are now part of PuppetMasterKK, and your Right Back At You settings were brought over.\nDisable or remove Right Back At You so emotes aren't answered twice.",
-                        Type = Dalamud.Interface.ImGuiNotification.NotificationType.Info,
-                        InitialDuration = TimeSpan.FromSeconds(20),
-                    });
+                    Service.Notify("Emote replies are now part of PuppetMasterKK, and your Right Back At You settings were brought over.\n" +
+                                   "Disable or remove Right Back At You so emotes aren't answered twice.", NotificationType.Info);
                 }
-                Service.CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
+                // Only a command we added is removed on unload (a name another plugin already took stays theirs).
+                commandRegistered = Service.CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
                 {
                     HelpMessage = @"Open the PuppetMasterKK window (short: /pmkk)
-/pmkk on|off - turn every reaction on or off
-/pmkk on|off <ReactionName> - turn reactions with that name on or off
+/pmkk on|off - turn every trigger on or off (off also stops walking and mimicking)
+/pmkk on|off <TriggerName> - turn triggers with that name on or off
 /pmkk logging on|off - capture chat messages in the message log (this session)
 /pmkk logging clear - clear the message log and the discarded counts
 /pmkk logging save - save the message log to a file
 /pmkk viz - show what's running (Activity)"
                 });
-                Service.CommandManager.AddHandler(ShortCommandName, new CommandInfo(OnCommand)
+                shortCommandRegistered = Service.CommandManager.AddHandler(ShortCommandName, new CommandInfo(OnCommand)
                 {
                     HelpMessage = "Short for /puppetmasterkk",
                     ShowInHelp = false,
                 });
-                commandRegistered = true;
+                if (!commandRegistered || !shortCommandRegistered)
+                    Service.PluginLog.Warning("Another plugin already uses {Long} or {Short}.", CommandName, ShortCommandName);
                 WarnIfOldPluginLoaded();
                 Service.PluginInterface.ActivePluginsChanged += OnActivePluginsChanged;
                 pluginsWatched = true;
                 ShowLoadNotices();
                 Service.ChatGui.ChatMessage += ChatHandler.OnChatMessage;
                 chatSubscribed = true;
+                Service.ClientState.Logout += OnLogout;
+                logoutSubscribed = true;
                 Service.PluginInterface.UiBuilder.Draw += DrawUI;
                 Service.PluginInterface.UiBuilder.OpenConfigUi += OpenSettings;
                 Service.PluginInterface.UiBuilder.OpenMainUi += OpenMain;
@@ -100,32 +101,42 @@ namespace PuppetMasterKK
             }
         }
 
+        // A mimic leader or walk from one character must not carry over to the next.
+        private static void OnLogout(int type, int code) => Safe(FollowMode.Reset);
+
+        // Undoes the constructor in reverse order.
         public void Dispose()
         {
-            if (pluginsWatched)
-            {
-                Safe(() => Service.PluginInterface.ActivePluginsChanged -= OnActivePluginsChanged);
-                pluginsWatched = false;
-            }
             if (uiSubscribed)
             {
-                Safe(() =>
-                {
-                    Service.PluginInterface.UiBuilder.Draw -= DrawUI;
-                    Service.PluginInterface.UiBuilder.OpenConfigUi -= OpenSettings;
-                    Service.PluginInterface.UiBuilder.OpenMainUi -= OpenMain;
-                });
+                Safe(() => Service.PluginInterface.UiBuilder.OpenMainUi -= OpenMain);
+                Safe(() => Service.PluginInterface.UiBuilder.OpenConfigUi -= OpenSettings);
+                Safe(() => Service.PluginInterface.UiBuilder.Draw -= DrawUI);
                 uiSubscribed = false;
+            }
+            if (logoutSubscribed)
+            {
+                Safe(() => Service.ClientState.Logout -= OnLogout);
+                logoutSubscribed = false;
             }
             if (chatSubscribed)
             {
                 Safe(() => Service.ChatGui.ChatMessage -= ChatHandler.OnChatMessage);
                 chatSubscribed = false;
             }
+            if (pluginsWatched)
+            {
+                Safe(() => Service.PluginInterface.ActivePluginsChanged -= OnActivePluginsChanged);
+                pluginsWatched = false;
+            }
+            if (shortCommandRegistered)
+            {
+                Safe(() => Service.CommandManager.RemoveHandler(ShortCommandName));
+                shortCommandRegistered = false;
+            }
             if (commandRegistered)
             {
                 Safe(() => Service.CommandManager.RemoveHandler(CommandName));
-                Safe(() => Service.CommandManager.RemoveHandler(ShortCommandName));
                 commandRegistered = false;
             }
             if (emoteReplies != null)
@@ -166,7 +177,7 @@ namespace PuppetMasterKK
                 var rivals = new List<string>();
                 foreach (var plugin in Service.PluginInterface.InstalledPlugins)
                 {
-                    if (!plugin.IsLoaded || plugin.InternalName.Equals("PuppetMasterKK", StringComparison.OrdinalIgnoreCase))
+                    if (!plugin.IsLoaded || plugin.InternalName.Equals(Service.PluginInterface.InternalName, StringComparison.OrdinalIgnoreCase))
                         continue;
                     // Each rival is announced once per session, not on every plugin list change.
                     if ((IsRival(plugin.InternalName) || IsRival(plugin.Name)) && WarnedRivals.Add(plugin.InternalName))
@@ -181,7 +192,7 @@ namespace PuppetMasterKK
                     Title = "There can be only one PuppetMasterKK",
                     Content = $"Also running: {names}.\nIt reacts to the same chat and emotes, so everything would fire twice. " +
                               "Disable or uninstall it and let PuppetMasterKK pull the strings.",
-                    Type = Dalamud.Interface.ImGuiNotification.NotificationType.Warning,
+                    Type = NotificationType.Warning,
                     InitialDuration = TimeSpan.FromSeconds(30),
                 });
                 Service.ChatGui.PrintError($"[PuppetMasterKK] Another puppet master is loaded ({names}). Disable it, or every trigger fires twice.");
@@ -203,33 +214,22 @@ namespace PuppetMasterKK
             var config = Service.configuration!;
             if (Service.LegacyConfigImported)
             {
-                Notify("Your Puppet Master triggers and settings were brought over. The old settings file wasn't changed.",
-                       Dalamud.Interface.ImGuiNotification.NotificationType.Info);
+                Service.Notify("Your Puppet Master triggers and settings were brought over. The old settings file wasn't changed.",
+                       NotificationType.Info);
             }
             else if (Service.LegacyUnreadable.Count > 0)
             {
-                Notify($"Old Puppet Master settings were found but couldn't be read ({string.Join(", ", Service.LegacyUnreadable)}), " +
+                Service.Notify($"Old Puppet Master settings were found but couldn't be read ({string.Join(", ", Service.LegacyUnreadable)}), " +
                        "so PuppetMasterKK started fresh. They weren't changed.",
-                       Dalamud.Interface.ImGuiNotification.NotificationType.Warning);
+                       NotificationType.Warning);
             }
             if (config.ReviewAfterMigration.Count > 0)
             {
-                Notify($"Please review: {string.Join(", ", config.ReviewAfterMigration)}.\nThese can run any game command and react " +
+                Service.Notify($"Please review: {string.Join(", ", config.ReviewAfterMigration)}.\nThese can run any game command and react " +
                        "to anyone. Chat commands, other plugins' commands and things like teleporting now have to be allowed one by one.",
-                       Dalamud.Interface.ImGuiNotification.NotificationType.Warning);
+                       NotificationType.Warning);
                 config.ReviewAfterMigration.Clear();
             }
-        }
-
-        private static void Notify(string content, Dalamud.Interface.ImGuiNotification.NotificationType type)
-        {
-            Service.NotificationManager.AddNotification(new Dalamud.Interface.ImGuiNotification.Notification
-            {
-                Title = "PuppetMasterKK",
-                Content = content,
-                Type = type,
-                InitialDuration = TimeSpan.FromSeconds(20),
-            });
         }
 
         private static bool IsRival(string name)
@@ -255,11 +255,11 @@ namespace PuppetMasterKK
 
         private void OnCommand(String command, String args)
         {
-            if (string.IsNullOrEmpty(args))
+            if (string.IsNullOrWhiteSpace(args))
                 mainWindow?.Toggle(Page.Reactions);
             else
             {
-                // The verb, then the rest as typed (a reaction name is matched exactly as written, brackets included).
+                // The verb, then the rest as typed (a trigger name is matched as written, brackets included, ignoring case).
                 var trimmed = args.Trim();
                 var space = trimmed.IndexOf(' ');
                 var ptc = new ParsedTextCommand
@@ -270,7 +270,12 @@ namespace PuppetMasterKK
                 void enableReactions(bool enable)
                 {
                     if (string.IsNullOrEmpty(ptc.Args))
+                    {
                         Service.SetEnabledAll(enable);
+                        // "Off" with no name is the panic switch: stop any walk or mimic too.
+                        if (!enable)
+                            FollowMode.Reset();
+                    }
                     else
                         Service.SetEnabled(ptc.Args, enable);
                     if (!enable)
@@ -291,6 +296,10 @@ namespace PuppetMasterKK
                 else if (ptc.Main.Equals("/viz") || ptc.Main.Equals("/visualizer"))
                 {
                     mainWindow?.Show(Page.Activity);
+                }
+                else
+                {
+                    Service.ChatGui.PrintError("[PuppetMasterKK] Unknown option. Use /pmkk, /pmkk on|off [name], /pmkk logging or /pmkk viz.");
                 }
             }
         }

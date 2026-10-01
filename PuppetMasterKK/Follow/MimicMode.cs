@@ -8,7 +8,7 @@ namespace PuppetMasterKK;
 
 // "Ami mimic me" (framework thread only): every emote the leader performs, you perform too, aimed at the same
 // player or object (at the leader, when they aim it at you; at nobody when they aim it at nobody). Ends with the
-// stop word, a new mimic request, or unloading.
+// stop word, a new mimic request, turning Mimic off, or unloading.
 internal static class MimicMode
 {
     // The emote hook's "no target".
@@ -18,76 +18,100 @@ internal static class MimicMode
     // the leader within the repeat guard, isn't copied again.
     private static string? lastCommand;
     private static long lastAt;
+    // Bumped on every start and stop: copies still waiting out the delay are dropped.
+    private static int generation;
 
     public static PlayerName? Leader { get; private set; }
 
-    public static bool IsActive => Leader != null;
+    public static bool IsActive => Leader != null && Service.configuration?.Mimic?.Enabled == true;
 
     public static void Start(PlayerName leader)
     {
         Leader = leader;
+        generation++;
+        lastCommand = null;
         Service.PluginLog.Information("Mimicking {Leader}.", leader.Name);
     }
 
     public static void Stop()
     {
         Leader = null;
-        // Copies still waiting out the delay are dropped.
         generation++;
     }
 
-    private static int generation;
-
     public static bool IsLeader(SenderInfo who)
     {
-        return Leader is { } leader && who.Name.Equals(leader.Name, StringComparison.OrdinalIgnoreCase) &&
-               (leader.World.Length == 0 || who.World.Equals(leader.World, StringComparison.OrdinalIgnoreCase));
+        return IsActive && Leader is { } leader && who.Name.Equals(leader.Name, StringComparison.OrdinalIgnoreCase) &&
+               who.World.Equals(leader.World, StringComparison.OrdinalIgnoreCase);
     }
 
     // The leader performed `command` aimed at targetId: copy it now, or after the delay.
     public static void Copy(IPlayerCharacter leader, string command, ulong targetId)
     {
-        var delay = Service.configuration?.Mimic.DelaySeconds ?? 0f;
+        var settings = Service.configuration?.Mimic;
+        if (settings == null)
+            return;
+        var delay = Math.Clamp(settings.DelaySeconds, 0f, MimicSettings.MaxDelaySeconds);
+        // A partner mimicking us with the same delay sends our emote back that much later.
+        if (IsRepeat(command, settings.RepeatGuardSeconds, delay))
+            return;
+        var leaderId = leader.GameObjectId;
         if (delay <= 0f)
         {
-            CopyNow(leader.GameObjectId, command, targetId);
+            CopyNow(leaderId, command, targetId);
             return;
         }
-        var leaderId = leader.GameObjectId;
         var expected = generation;
         _ = Service.Framework.RunOnTick(() =>
         {
-            if (expected == generation && IsActive)
+            if (expected == generation)
                 CopyNow(leaderId, command, targetId);
-        }, TimeSpan.FromSeconds(Math.Min(delay, MimicSettings.MaxDelaySeconds)));
+        }, TimeSpan.FromSeconds(delay));
+    }
+
+    // The emote we copied last, again within guardSeconds (plus extraSeconds) of copying it.
+    private static bool IsRepeat(string command, float guardSeconds, float extraSeconds = 0f)
+    {
+        if (lastCommand == null || guardSeconds <= 0f)
+            return false;
+        var window = guardSeconds + extraSeconds;
+        return Stopwatch.GetTimestamp() - lastAt < (long)(window * Stopwatch.Frequency) &&
+               Service.Commands.Canonicalize(command) == Service.Commands.Canonicalize(lastCommand);
     }
 
     private static void CopyNow(ulong leaderId, string command, ulong targetId)
     {
-        var settings = Service.configuration?.Mimic;
-        var local = Service.ObjectTable.LocalPlayer;
-        if (settings == null || local == null || Service.Condition[ConditionFlag.InCombat])
-            return;
-        if (Service.Commands.IsAlwaysBlocked(Service.Commands.Canonicalize(command)))
-            return;
-        var now = Stopwatch.GetTimestamp();
-        var guard = (long)(Math.Max(0f, settings.RepeatGuardSeconds) * Stopwatch.Frequency);
-        if (guard > 0 && lastCommand != null && now - lastAt < guard &&
-            Service.Commands.Canonicalize(command) == Service.Commands.Canonicalize(lastCommand))
-            return;
-        if (!CommandRateLimiter.Shared.TryAcquire(now))
-            return;
-        lastCommand = command;
-        lastAt = now;
+        try
+        {
+            var settings = Service.configuration?.Mimic;
+            var local = Service.ObjectTable.LocalPlayer;
+            if (settings == null || !IsActive || local == null || Service.Condition[ConditionFlag.InCombat])
+                return;
+            // Only emotes, whatever the sheet says.
+            if (!Service.Commands.IsEmote(command) || Service.Commands.IsAlwaysBlocked(Service.Commands.Canonicalize(command)))
+                return;
+            // Repeats queued during the delay collapse into one copy.
+            if (IsRepeat(command, settings.RepeatGuardSeconds))
+                return;
+            var now = Stopwatch.GetTimestamp();
+            if (!CommandRateLimiter.Shared.TryAcquire(now))
+                return;
+            lastCommand = command;
+            lastAt = now;
 
-        // Aim it where they aimed theirs. At us: back at them.
-        if (targetId == 0 || targetId == NoTarget)
-            Service.TargetManager.Target = null;
-        else if (targetId == local.GameObjectId)
-            Service.TargetManager.Target = Service.ObjectTable.SearchById(leaderId);
-        else
-            Service.TargetManager.Target = Service.ObjectTable.SearchById(targetId);
+            // Aim it where they aimed theirs. At us: back at them.
+            if (targetId == 0 || targetId == NoTarget)
+                Service.TargetManager.Target = null;
+            else if (targetId == local.GameObjectId)
+                Service.TargetManager.Target = Service.ObjectTable.SearchById(leaderId);
+            else
+                Service.TargetManager.Target = Service.ObjectTable.SearchById(targetId);
 
-        Chat.SendMessage(settings.MotionOnly ? $"{command} motion" : command);
+            Chat.SendMessage(CommandPolicy.EmoteLine(command, settings.MotionOnly));
+        }
+        catch (Exception ex)
+        {
+            Service.PluginLog.Warning(ex, "Couldn't copy {Command}.", command);
+        }
     }
 }

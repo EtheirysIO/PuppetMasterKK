@@ -1,6 +1,6 @@
 # PuppetMasterKK guide
 
-PuppetMasterKK lets trusted chat messages boss your character around—wave, pose, perform a short routine, or run another text command you explicitly allow. It can also answer emotes aimed at you with the same emote.
+PuppetMasterKK lets trusted chat messages boss your character around—wave, pose, perform a short routine, or run another text command you explicitly allow. It can also answer emotes aimed at you, follow (or come to) a player when asked, and copy someone's emotes.
 
 > [!CAUTION]
 > A trigger can run text commands on your character. Choose who can set it off, use specific phrases and trusted channels, and allow only the commands you need.
@@ -22,7 +22,8 @@ The sidebar picks the page:
 
 - **Triggers** — your triggers are listed at the top of the sidebar; pick one to edit it, or **+** to make one.
 - **Emote replies** — answer emotes aimed at you.
-- **Follow mode** — follow whoever asks (or the player they name), and stop everything on request.
+- **Follow mode** — follow or come to whoever asks (or the player they name), and stop everything on request.
+- **Mimic** — copy a player's emotes when asked.
 - **Activity** — what's running, waiting and recently finished.
 - **Message log** — capture chat to find channels and build triggers.
 - **Settings** — general options, defaults for new triggers, custom channels and appearance.
@@ -135,8 +136,8 @@ Each trigger's **Protections** card decides how much control it gets:
 2. Emotes run unless they're blocked.
 3. Other commands must be under **Allowed**, unless **Any game command** is selected.
 4. Protected commands only run when listed under **Allowed** (shown as **Also allowed** with **Any game command**). Three switches in the card decide what's protected, and each has ticks for its parts:
-   - **Protect chat commands**: Say, Yell, Shout, Tell, Party, Alliance, Free Company, Linkshells, CWLS, Novice Network, PvP Team and emote text (`/em`).
-   - **Protect risky game commands**: teleport and return, party commands (leave, kick, invite), gear sets and glamour plates, trading, the friend list and blacklist, and hotbars.
+   - **Protect chat commands**: Say, Yell, Shout, Tell, Party, Alliance, Free Company, Linkshells (including `/l` for your current one), CWLS (including `/cwl`), Novice Network, PvP Team and emote text (`/em`).
+   - **Protect risky game commands**: teleport and return, party commands (join, leave, kick, invite, leader), gear sets and glamour plates, trading, the friend list, blacklist and leaving the Novice Network, your search comment, hotbars, and resets (UI, HUD, chat log, tell history).
    - **Protect plugin commands**: every loaded plugin that has commands. The ones people could cause trouble with (Lifestream, Glamourer, Penumbra, Customize+, Dropbox, vnavmesh and others) are listed first, with the reason; the rest are under **Show other plugins**.
 
    Untick a part and its commands run without being listed. Switch a whole group off and all of its commands do. Everything starts protected, and **Settings → New triggers** sets what new triggers start with.
@@ -237,7 +238,7 @@ To stop everything at once:
 /pmkk off
 ```
 
-This also clears waiting requests. **Cancel** in the sidebar stops every trigger and clears what's waiting; **Stop** on the Activity page stops one trigger.
+This also clears waiting requests and stops any walk or mimic. **Cancel** in the sidebar stops every trigger and clears what's waiting; **Stop** on the Activity page stops one trigger.
 
 ## Follow mode
 
@@ -249,18 +250,18 @@ This also clears waiting requests. **Cancel** in the sidebar stops every trigger
 - Otherwise the player has to be nearby. If they aren't, PuppetMasterKK can **Reply by tell** with your own message, where `<target>` becomes the name they asked for: `uwu I'm sorry master I don't see <target> near me :c`. One reply per person every 10 seconds.
 - **Channels** picks where it listens (Tell, Party and Free Company to start). **Who can trigger it** works as it does for triggers, and **Never take requests from** blocks people outright.
 - **Who you'll follow**: when **Only follow** has names, only they are followed; **Never follow** always wins.
-- `Ami stop` stops every trigger (running or waiting). With **Also stand still** on, it takes one tiny `/automove` step, which ends following, emote loops, sitting and lying down, leaving you standing. **Then run** adds your own commands after that.
-- A line Follow mode takes isn't also matched by your triggers.
+- `Ami stop` stops every trigger (running or waiting), any walk and any mimic. With **Also stand still** on, it takes one tiny `/automove` step, which ends following, emote loops, sitting and lying down, leaving you standing. **Then also run** adds your own commands after that. However many people say stop, the step and these commands run at most once every 2 seconds.
+- A line Follow mode or Mimic takes isn't also matched by your triggers.
 
 ## Mimic
 
 **Mimic** (its own page) lets someone you trust make you copy a player's emotes.
 
-- `Ami mimic me` copies whoever said it; `Ami mimic Nova Ral'veth@Exodus` (or `Ami mimic Nova`, when only one Nova is nearby) copies that player. `Ami mimic` on its own names nobody, so it's ignored. `Ami stop` stops mimicking (if Follow mode uses the same call name and stop word, its stop stops everything).
+- `Ami mimic me` copies whoever said it (it has to come from a player whose world the game shows); `Ami mimic Nova Ral'veth@Exodus` (or `Ami mimic Nova`, when only one Nova is nearby) copies that player. `Ami mimic` on its own names nobody, so it's ignored. `Ami stop` stops mimicking (if Follow mode uses the same call name and stop word, its stop stops everything).
 - When they emote at someone, you target the same person and do the same emote; when they emote at you, you emote back at them; when they emote at nobody, you clear your target and emote too. Only emotes are copied, only from a player close enough to see, and not during combat.
 - **Call name**, **Mimic word** and **Stop word** are Mimic's own. **Channels**, **Who can trigger it** and **Never take requests from** decide who can start and stop it. **Who you'll mimic** has **Only mimic** and **Never mimic**, for when you're told to mimic someone else.
-- **Wait before copying** (off to start) copies each emote up to 10 seconds after they do it.
-- **Skip the same emote repeated quickly** (on, 3 seconds) doesn't copy the same emote again if it comes back that soon, so two players mimicking each other don't loop. Turn it off to copy every repeat.
+- **Wait before copying** (off to start) copies each emote this long after they do it (0.1 to 10 seconds).
+- **Skip the same emote repeated quickly** (on, 3 seconds) doesn't copy the same emote again for that long after copying it (plus the wait before copying, if that's on), so two players mimicking each other don't loop. Turn it off to copy every repeat.
 - **Hide emote text** is on to start, and **When the player isn't nearby** can reply by tell, as in Follow mode.
 - Settings from before Mimic had its own page start as copies of Follow mode's.
 
@@ -326,14 +327,14 @@ During extreme message spam, PuppetMasterKK may discard older messages that are 
 
 ## Managing triggers and commands
 
-Triggers may share a name. Name-based commands affect every exact, case-sensitive match.
+Triggers may share a name. `/pmkk on|off <TriggerName>` affects every trigger with that name (case doesn't matter). `/pmkk off` on its own also stops any walk or mimic.
 
 ```text
 /pmkk
 /pmkk on
 /pmkk off
-/pmkk on <ReactionName>
-/pmkk off <ReactionName>
+/pmkk on <TriggerName>
+/pmkk off <TriggerName>
 ```
 
 ## Appearance
@@ -360,8 +361,8 @@ When PuppetMasterKK upgrades settings from an older version, it first saves a da
 ### A command says Blocked
 
 - Hover it to see why.
-- It may be under **Blocked**, or always blocked (`/logout`, `/shutdown`, `/pmkk`, `/xl…`).
-- Add other commands under **Allowed**. Chat and plugin commands always need to be listed.
+- It may be under **Blocked**, or always blocked (`/logout`, `/shutdown`, `/follow`, `/pmkk`, `/xl…`).
+- Add other commands under **Allowed**. Chat, risky and plugin commands need to be listed unless their protection is switched off.
 
 ### The test works but nothing happens in game
 

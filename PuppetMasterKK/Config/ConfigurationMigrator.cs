@@ -6,6 +6,8 @@ namespace PuppetMasterKK;
 public static class ConfigurationMigrator
 {
     private static readonly string[] LegacySitCommands = ["/sit", "/groundsit", "/lounge"];
+    private const int MinRegexLength = 100;
+    private const int MaxRegexLength = 10000;
 
     public static bool MigrateAndNormalize(Configuration configuration)
     {
@@ -40,9 +42,9 @@ public static class ConfigurationMigrator
     private static bool MigrateV0ToV1(Configuration configuration)
     {
         var enabledChannels = new List<int>();
-        foreach (var channel in configuration.EnabledChannels)
+        foreach (var channel in configuration.EnabledChannels ?? [])
         {
-            if (channel.Enabled)
+            if (channel is { Enabled: true })
                 enabledChannels.Add(channel.ChatType);
         }
 
@@ -85,6 +87,8 @@ public static class ConfigurationMigrator
         configuration.Reactions ??= [];
         foreach (var reaction in configuration.Reactions)
         {
+            if (reaction == null)
+                continue;
             reaction.ProgressNotifications = ReactionNotificationSetting.Inherit;
             reaction.SuppressedNotifications = ReactionNotificationSetting.Inherit;
         }
@@ -173,57 +177,68 @@ public static class ConfigurationMigrator
             configuration.DefaultEnabledChannels = [];
             changed = true;
         }
+        if (configuration.MaxRegexLength is < MinRegexLength or > MaxRegexLength)
+        {
+            configuration.MaxRegexLength = Configuration.DefaultMaxRegexLength;
+            changed = true;
+        }
+        if (!float.IsFinite(configuration.TextScale))
+        {
+            configuration.TextScale = 1f;
+            changed = true;
+        }
+        if (!Enum.IsDefined(configuration.Accent))
+        {
+            configuration.Accent = default;
+            changed = true;
+        }
+
         if (configuration.EmoteReplies == null)
         {
             configuration.EmoteReplies = new EmoteReplySettings();
             changed = true;
         }
-        if (configuration.EmoteReplies.Senders == null)
+        var replies = configuration.EmoteReplies;
+        replies.Senders = RepairSenders(replies.Senders, ref changed);
+        if (replies.Overrides == null) { replies.Overrides = []; changed = true; }
+        changed |= RemoveNullEntries(replies.Overrides);
+        // An override with no emote to match can never apply; a null reply means "don't reply".
+        changed |= replies.Overrides.RemoveAll(entry => string.IsNullOrWhiteSpace(entry.When)) > 0;
+        foreach (var entry in replies.Overrides)
         {
-            configuration.EmoteReplies.Senders = new SenderFilter();
+            if (entry.Reply == null) { entry.Reply = string.Empty; changed = true; }
+        }
+        var replyCooldown = Math.Clamp(replies.PerPlayerCooldownSeconds,
+            EmoteReplySettings.MinimumCooldownSeconds, EmoteReplySettings.MaximumCooldownSeconds);
+        if (replies.PerPlayerCooldownSeconds != replyCooldown)
+        {
+            replies.PerPlayerCooldownSeconds = replyCooldown;
             changed = true;
         }
+        if (replies.BlockedEmotes == null) { replies.BlockedEmotes = []; changed = true; }
+        changed |= DeduplicateCommands(replies.BlockedEmotes);
+
         if (configuration.Mimic == null)
         {
             configuration.Mimic = new MimicSettings();
             changed = true;
         }
-        var mimicSettings = configuration.Mimic;
-        if (mimicSettings.Channels == null) { mimicSettings.Channels = []; changed = true; }
-        if (mimicSettings.Senders == null) { mimicSettings.Senders = new SenderFilter(); changed = true; }
-        if (mimicSettings.Senders.Named == null) { mimicSettings.Senders.Named = []; changed = true; }
-        if (mimicSettings.NeverFrom == null) { mimicSettings.NeverFrom = []; changed = true; }
-        if (mimicSettings.OnlyMimic == null) { mimicSettings.OnlyMimic = []; changed = true; }
-        if (mimicSettings.NeverMimic == null) { mimicSettings.NeverMimic = []; changed = true; }
-        mimicSettings.CallNames ??= string.Empty;
-        mimicSettings.MimicWords ??= string.Empty;
-        mimicSettings.StopWords ??= string.Empty;
-        mimicSettings.NotNearbyMessage ??= string.Empty;
-        mimicSettings.DelaySeconds = float.IsFinite(mimicSettings.DelaySeconds)
-            ? System.Math.Clamp(mimicSettings.DelaySeconds, 0f, MimicSettings.MaxDelaySeconds) : 0f;
-        mimicSettings.RepeatGuardSeconds = float.IsFinite(mimicSettings.RepeatGuardSeconds)
-            ? System.Math.Clamp(mimicSettings.RepeatGuardSeconds, 0f, 30f) : 3f;
-        if (configuration.EmoteReplies.Overrides == null)
-        {
-            configuration.EmoteReplies.Overrides = [];
-            changed = true;
-        }
-        changed |= RemoveNullEntries(configuration.EmoteReplies.Overrides);
-        if (configuration.EmoteReplies.Senders.Named == null)
-        {
-            configuration.EmoteReplies.Senders.Named = [];
-            changed = true;
-        }
-        if (configuration.EmoteReplies.PerPlayerCooldownSeconds < EmoteReplySettings.MinimumCooldownSeconds)
-        {
-            configuration.EmoteReplies.PerPlayerCooldownSeconds = EmoteReplySettings.MinimumCooldownSeconds;
-            changed = true;
-        }
-        if (configuration.EmoteReplies.BlockedEmotes == null)
-        {
-            configuration.EmoteReplies.BlockedEmotes = [];
-            changed = true;
-        }
+        var mimic = configuration.Mimic;
+        if (mimic.CallNames == null) { mimic.CallNames = string.Empty; changed = true; }
+        if (mimic.MimicWords == null) { mimic.MimicWords = "mimic"; changed = true; }
+        if (mimic.StopWords == null) { mimic.StopWords = "stop"; changed = true; }
+        if (mimic.NotNearbyMessage == null) { mimic.NotNearbyMessage = string.Empty; changed = true; }
+        if (mimic.Channels == null) { mimic.Channels = []; changed = true; }
+        changed |= DeduplicateChannels(mimic.Channels);
+        mimic.Senders = RepairSenders(mimic.Senders, ref changed);
+        mimic.NeverFrom = RepairStrings(mimic.NeverFrom, ref changed);
+        mimic.OnlyMimic = RepairStrings(mimic.OnlyMimic, ref changed);
+        mimic.NeverMimic = RepairStrings(mimic.NeverMimic, ref changed);
+        var delay = float.IsFinite(mimic.DelaySeconds) ? Math.Clamp(mimic.DelaySeconds, 0f, MimicSettings.MaxDelaySeconds) : 0f;
+        if (delay != mimic.DelaySeconds) { mimic.DelaySeconds = delay; changed = true; }
+        var guard = float.IsFinite(mimic.RepeatGuardSeconds) ? Math.Clamp(mimic.RepeatGuardSeconds, 0f, MimicSettings.MaxRepeatGuardSeconds) : 3f;
+        if (guard != mimic.RepeatGuardSeconds) { mimic.RepeatGuardSeconds = guard; changed = true; }
+
         if (configuration.Follow == null)
         {
             configuration.Follow = new FollowSettings();
@@ -233,15 +248,16 @@ public static class ConfigurationMigrator
         if (follow.CallNames == null) { follow.CallNames = string.Empty; changed = true; }
         if (follow.FollowWords == null) { follow.FollowWords = "follow"; changed = true; }
         if (follow.StopWords == null) { follow.StopWords = "stop"; changed = true; }
+        if (follow.ComeWords == null) { follow.ComeWords = "come"; changed = true; }
         if (follow.NotNearbyMessage == null) { follow.NotNearbyMessage = string.Empty; changed = true; }
         if (follow.Channels == null) { follow.Channels = []; changed = true; }
-        if (follow.Senders == null) { follow.Senders = new SenderFilter(); changed = true; }
-        if (follow.Senders.Named == null) { follow.Senders.Named = []; changed = true; }
-        if (follow.NeverFrom == null) { follow.NeverFrom = []; changed = true; }
-        if (follow.OnlyFollow == null) { follow.OnlyFollow = []; changed = true; }
-        if (follow.NeverFollow == null) { follow.NeverFollow = []; changed = true; }
-        if (follow.StopCommands == null) { follow.StopCommands = []; changed = true; }
         changed |= DeduplicateChannels(follow.Channels);
+        follow.Senders = RepairSenders(follow.Senders, ref changed);
+        follow.NeverFrom = RepairStrings(follow.NeverFrom, ref changed);
+        follow.OnlyFollow = RepairStrings(follow.OnlyFollow, ref changed);
+        follow.NeverFollow = RepairStrings(follow.NeverFollow, ref changed);
+        follow.StopCommands = RepairStrings(follow.StopCommands, ref changed);
+
         changed |= NormalizeCustomChannels(configuration.CustomChannels);
         changed |= DeduplicateCommands(configuration.DefaultCommandWhitelist);
         changed |= DeduplicateCommands(configuration.DefaultCommandBlacklist);
@@ -258,7 +274,7 @@ public static class ConfigurationMigrator
             if (reaction.CommandWhitelist == null) { reaction.CommandWhitelist = []; changed = true; }
             if (reaction.CommandBlacklist == null) { reaction.CommandBlacklist = []; changed = true; }
             if (reaction.Senders == null) { reaction.Senders = SenderFilter.AnyoneFilter(); changed = true; }
-            if (reaction.Senders.Named == null) { reaction.Senders.Named = []; changed = true; }
+            reaction.Senders = RepairSenders(reaction.Senders, ref changed);
             reaction.Protections = RepairProtections(reaction.Protections, ref changed);
 
             changed |= DeduplicateChannels(reaction.EnabledChannels);
@@ -269,7 +285,7 @@ public static class ConfigurationMigrator
             {
                 foreach (var command in LegacySitCommands)
                 {
-                    if (!ContainsCommand(reaction.CommandBlacklist, command))
+                    if (!PluginUiLogic.ContainsCommand(reaction.CommandBlacklist, command))
                     {
                         reaction.CommandBlacklist.Add(command);
                         changed = true;
@@ -280,9 +296,10 @@ public static class ConfigurationMigrator
                 changed = true;
             }
 
-            if (reaction.CooldownSeconds < 0)
+            var cooldown = Math.Clamp(reaction.CooldownSeconds, 0, Reaction.MaxCooldownSeconds);
+            if (reaction.CooldownSeconds != cooldown)
             {
-                reaction.CooldownSeconds = 0;
+                reaction.CooldownSeconds = cooldown;
                 changed = true;
             }
             if (!Enum.IsDefined(reaction.ExecutionPolicy))
@@ -339,11 +356,6 @@ public static class ConfigurationMigrator
             return false;
         channels.RemoveRange(writeIndex, channels.Count - writeIndex);
         return true;
-    }
-
-    private static bool ContainsCommand(List<string> commands, string command)
-    {
-        return commands.Exists(item => string.Equals(item, command, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool NormalizeCustomChannels(List<ChannelSetting> channels)
@@ -403,9 +415,34 @@ public static class ConfigurationMigrator
             changed = true;
             return new ProtectionSettings();
         }
-        if (protections.OpenChat == null) { protections.OpenChat = []; changed = true; }
-        if (protections.OpenRisky == null) { protections.OpenRisky = []; changed = true; }
-        if (protections.OpenPlugins == null) { protections.OpenPlugins = []; changed = true; }
+        protections.OpenChat = RepairStrings(protections.OpenChat, ref changed);
+        protections.OpenRisky = RepairStrings(protections.OpenRisky, ref changed);
+        protections.OpenPlugins = RepairStrings(protections.OpenPlugins, ref changed);
         return protections;
+    }
+
+    // A missing filter gets the new-reaction default (friends, free company, party).
+    private static SenderFilter RepairSenders(SenderFilter? senders, ref bool changed)
+    {
+        if (senders == null)
+        {
+            changed = true;
+            return new SenderFilter();
+        }
+        senders.Named = RepairStrings(senders.Named, ref changed);
+        return senders;
+    }
+
+    // Never null, and no null or blank entries (duplicates are kept: they may be meant).
+    private static List<string> RepairStrings(List<string>? items, ref bool changed)
+    {
+        if (items == null)
+        {
+            changed = true;
+            return [];
+        }
+        if (items.RemoveAll(string.IsNullOrWhiteSpace) > 0)
+            changed = true;
+        return items;
     }
 }

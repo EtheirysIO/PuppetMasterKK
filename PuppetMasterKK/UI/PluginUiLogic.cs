@@ -66,13 +66,7 @@ internal static class PluginUiLogic
     {
         if (configuration.Reactions.Count == 0)
         {
-            configuration.Reactions.Add(Reaction.CreateDefault(
-                commandWhitelist: configuration.DefaultCommandWhitelist,
-                commandBlacklist: configuration.DefaultCommandBlacklist,
-                allowAllCommands: configuration.DefaultAllowAllCommands,
-                motionOnly: configuration.DefaultMotionOnly,
-                protections: configuration.DefaultProtections,
-                enabledChannels: configuration.DefaultEnabledChannels));
+            configuration.Reactions.Add(Reaction.FromDefaults(configuration));
         }
 
         return Math.Clamp(preferredIndex, 0, configuration.Reactions.Count - 1);
@@ -117,7 +111,7 @@ internal static class PluginUiLogic
 
     public static int ClampCooldown(int seconds)
     {
-        return Math.Clamp(seconds, 0, 86400);
+        return Math.Clamp(seconds, 0, Reaction.MaxCooldownSeconds);
     }
 
     public static bool IgnoresCooldown(ReactionExecutionPolicy policy)
@@ -199,6 +193,55 @@ internal static class PluginUiLogic
         return true;
     }
 
+    /// <summary>
+    /// Adds a whole command line, arguments kept ("/echo stopped"), with a leading "/" added if missing. False when
+    /// it's blank, more than one line, or already listed.
+    /// </summary>
+    public static bool AddCommandLine(List<string> commands, string input)
+    {
+        var line = input.Trim();
+        if (line.Length == 0 || line.IndexOfAny(['\r', '\n']) >= 0)
+            return false;
+        if (!line.StartsWith('/'))
+            line = "/" + line;
+        if (line.Length < 2 || ContainsCommand(commands, line))
+            return false;
+        commands.Add(line);
+        return true;
+    }
+
+    /// <summary>
+    /// Adds a player, "Name@World" or just "Name" for any world, unless it's already listed. False when nothing was
+    /// added (blank, or "Name@" / "@World", which match nobody).
+    /// </summary>
+    public static bool AddPlayerName(List<string> names, string input)
+    {
+        var text = input.Trim();
+        var at = text.IndexOf('@');
+        var name = (at < 0 ? text : text[..at]).Trim();
+        var world = at < 0 ? string.Empty : text[(at + 1)..].Trim();
+        if (name.Length == 0 || (at >= 0 && world.Length == 0))
+            return false;
+        var entry = world.Length == 0 ? name : $"{name}@{world}";
+        if (names.Exists(existing => existing.Equals(entry, StringComparison.OrdinalIgnoreCase)))
+            return false;
+        names.Add(entry);
+        return true;
+    }
+
+    /// <summary>The first of "|"-separated alternatives ("Ami|Kitty" gives "Ami"), or <paramref name="fallback"/> when there's none.</summary>
+    public static string FirstAlternative(string? text, string fallback)
+    {
+        if (text == null)
+            return fallback;
+        foreach (var part in text.Split('|'))
+        {
+            if (!string.IsNullOrWhiteSpace(part))
+                return part.Trim();
+        }
+        return fallback;
+    }
+
     public static Reaction CloneReaction(Reaction source)
     {
         return new Reaction
@@ -243,14 +286,7 @@ internal static class PluginUiLogic
         string channelName,
         Configuration configuration)
     {
-        var reaction = Reaction.CreateDefault(
-            $"Trigger from {channelName}",
-            configuration.DefaultCommandWhitelist,
-            configuration.DefaultCommandBlacklist,
-            configuration.DefaultAllowAllCommands,
-            configuration.DefaultMotionOnly,
-            configuration.DefaultEnabledChannels,
-            configuration.DefaultProtections);
+        var reaction = Reaction.FromDefaults(configuration, $"Trigger from {channelName}");
         reaction.EnabledChannels.Clear();
         reaction.UseRegex = true;
         reaction.CustomPhrase = $"^{Regex.Escape(triggerText)}$";

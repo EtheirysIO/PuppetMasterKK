@@ -1,5 +1,4 @@
 using System;
-using Dalamud.Bindings.ImGui;
 using phys1ksUI;
 
 namespace PuppetMasterKK.UI;
@@ -13,9 +12,9 @@ internal sealed partial class MainWindow
     private void DrawMimicPage()
     {
         var settings = Config.Mimic;
-        var call = FirstAlternative(settings.CallNames, "Ami");
-        var mimic = FirstAlternative(settings.MimicWords, "mimic");
-        var stop = FirstAlternative(settings.StopWords, "stop");
+        var call = PluginUiLogic.FirstAlternative(settings.CallNames, "Ami");
+        var mimic = PluginUiLogic.FirstAlternative(settings.MimicWords, "mimic");
+        var stop = PluginUiLogic.FirstAlternative(settings.StopWords, "stop");
 
         using (W.Card("mimic", "Mimic", MimicMode.Leader is { } leader ? $"Mimicking {leader.Name}" : settings.Enabled ? "On" : "Off"))
         {
@@ -33,26 +32,22 @@ internal sealed partial class MainWindow
             }
 
             Gap();
-            Label("Call name");
             var callNames = settings.CallNames;
-            if (W.TextInput("##mimicCallNames", ref callNames, "Ami", 0f, 200, error: settings.Enabled && string.IsNullOrWhiteSpace(callNames)))
+            if (CallNameInput("##mimicCallNames", ref callNames, settings.Enabled))
             {
                 settings.CallNames = callNames;
                 Changed();
             }
-            Hint("The name people use to get your attention. Separate multiple names with |, e.g. Ami|Kitty.");
 
             Gap();
-            Label("Mimic word");
             var mimicWords = settings.MimicWords;
-            if (W.TextInput("##mimicWords", ref mimicWords, "mimic", 0f, 200, error: string.IsNullOrWhiteSpace(mimicWords)))
+            if (WordInput("Mimic word", "##mimicWords", ref mimicWords, "mimic", required: true))
             {
                 settings.MimicWords = mimicWords;
                 Changed();
             }
-            Label("Stop word");
             var stopWords = settings.StopWords;
-            if (W.TextInput("##mimicStopWords", ref stopWords, "stop", 0f, 200, error: string.IsNullOrWhiteSpace(stopWords)))
+            if (WordInput("Stop word", "##mimicStopWords", ref stopWords, "stop", required: true))
             {
                 settings.StopWords = stopWords;
                 Changed();
@@ -73,8 +68,7 @@ internal sealed partial class MainWindow
         using (W.Card("mimicCopying", "Copying"))
         {
             var motionOnly = settings.MotionOnly;
-            if (W.Toggle("Hide emote text##mimicMotionOnly", ref motionOnly,
-                         tooltip: "The animation still plays, but the emote message isn't posted in chat"))
+            if (HideEmoteTextToggle("mimicMotionOnly", ref motionOnly))
             {
                 settings.MotionOnly = motionOnly;
                 Changed();
@@ -110,68 +104,33 @@ internal sealed partial class MainWindow
             {
                 Gap(2f);
                 var seconds = Math.Max(1, (int)MathF.Round(settings.RepeatGuardSeconds));
-                if (W.NumberInput("##mimicGuard", ref seconds, 1, 30, 1, Theme.S(180f), "seconds"))
+                if (W.NumberInput("##mimicGuard", ref seconds, 1, (int)MimicSettings.MaxRepeatGuardSeconds, 1, Theme.S(180f), "seconds"))
                 {
                     settings.RepeatGuardSeconds = seconds;
                     Changed();
                 }
             }
-            Hint("If you copy an emote and the same emote comes from them again within this time, it isn't copied. This " +
-                 "stops two players who mimic each other from looping forever. Turn it off to copy every repeat.");
+            Hint("After you copy an emote, the same emote isn't copied again for this long (plus the wait before copying, " +
+                 "if that's on). This stops two players who mimic each other from looping forever. Turn it off to copy every repeat.");
             Gap(2f);
             Hint("Only emotes are copied, and only from a player close enough to see. Paused during combat.");
         }
 
-        var count = settings.Channels.Count;
-        using (W.Card("mimicChannels", "Channels", count == 1 ? "1 picked" : $"{count} picked"))
-        {
-            DrawChannelChips(settings.Channels, "Mimic isn't listening to any channels yet.");
-            Gap(2f);
-            if (W.SecondaryButton("Pick channels##pickMimicChannels"))
-                OpenChannelPicker("Channels for Mimic", settings.Channels, null);
-        }
-
+        DrawChannelsCard("mimicChannels", settings.Channels, "Mimic isn't listening to any channels yet.", "Channels for Mimic");
         DrawSendersCard("mimicSenders", settings.Senders, Changed,
                         settings.Senders.Anyone ? "Anyone who can talk in the picked channels can make you mimic someone." : null);
-        using (W.Card("mimicNeverFrom", "Never take requests from", settings.NeverFrom.Count > 0 ? $"{settings.NeverFrom.Count}" : null))
+        if (NeverFromCard("mimicNeverFrom", settings.NeverFrom, ref mimicNeverFromInput))
+            Changed();
+        if (PlayerListsCard("mimicTargets", "Who you'll mimic", "Only mimic", settings.OnlyMimic, ref onlyMimicInput,
+                            "Never mimic", settings.NeverMimic, ref neverMimicInput))
+            Changed();
+        var reply = settings.ReplyWhenNotNearby;
+        var message = settings.NotNearbyMessage;
+        if (NotNearbyCard("mimicNotNearby", ref reply, ref message))
         {
-            if (StringListEditor("mimicNeverFrom", settings.NeverFrom, ref mimicNeverFromInput, "Name@World (or just Name)", "Nobody.",
-                                 input => AddName(settings.NeverFrom, input)))
-                Changed();
-        }
-
-        using (W.Card("mimicTargets", "Who you'll mimic"))
-        {
-            W.Heading("Only mimic");
-            if (StringListEditor("onlyMimic", settings.OnlyMimic, ref onlyMimicInput, "Name@World (or just Name)",
-                                 "Anyone (when this list is empty).", input => AddName(settings.OnlyMimic, input)))
-                Changed();
-            Gap();
-            W.Heading("Never mimic");
-            if (StringListEditor("neverMimic", settings.NeverMimic, ref neverMimicInput, "Name@World (or just Name)",
-                                 "Nobody.", input => AddName(settings.NeverMimic, input)))
-                Changed();
-        }
-
-        using (W.Card("mimicNotNearby", "When the player isn't nearby"))
-        {
-            var reply = settings.ReplyWhenNotNearby;
-            if (W.Toggle("Reply by tell##mimicReplyNotNearby", ref reply))
-            {
-                settings.ReplyWhenNotNearby = reply;
-                Changed();
-            }
-            if (settings.ReplyWhenNotNearby)
-            {
-                Gap(2f);
-                var message = settings.NotNearbyMessage;
-                if (W.TextInput("##mimicNotNearbyMessage", ref message, "Sorry, I don't see <target> near me.", 0f, 400))
-                {
-                    settings.NotNearbyMessage = message;
-                    Changed();
-                }
-                Hint("<target> is replaced with the name they asked for. Replies to the same person at most once every 10 seconds.");
-            }
+            settings.ReplyWhenNotNearby = reply;
+            settings.NotNearbyMessage = message;
+            Changed();
         }
     }
 }

@@ -148,6 +148,74 @@ Run("PuppetMaster_v2_null_collections.json", configuration =>
         "null default channels should normalize to an empty list");
 });
 
+// Someone else's hand-edited (or corrupted) file: nulls everywhere, out-of-range numbers, unknown enum values and
+// "$type" entries. It must load, repair to safe values, and stay that way.
+Run("PuppetMaster_v5_hostile.json", configuration =>
+{
+    Assert(configuration.Reactions.Count == 2, "null trigger entries should be dropped");
+    var first = configuration.Reactions[0];
+    Assert(first.Name == string.Empty && first.TriggerPhrase == Reaction.DefaultTriggerPhrase,
+        "null trigger text should be repaired");
+    Assert(first.CooldownSeconds is >= 0 and <= 86400 && configuration.Reactions[1].CooldownSeconds == 0,
+        "huge and negative cooldowns should be clamped");
+    Assert(first.ExecutionPolicy == ReactionExecutionPolicy.QueueEveryTrigger, "an unknown repeat policy should be reset");
+    Assert(first.EnabledChannels.SequenceEqual([13]), "out-of-range and duplicate channels should be dropped");
+    Assert(first.CommandWhitelist.SequenceEqual(["/logout"]) && first.CommandBlacklist.Count == 0,
+        "null, blank and duplicate commands should be dropped, and a null list repaired");
+    Assert(!first.Senders.Anyone && first.Senders.Named.SequenceEqual(["Nova Ral'veth@Exodus"]),
+        "null and blank player names should be dropped from a sender filter");
+    Assert(first.Protections.OpenChat.SequenceEqual(["say"]) && first.Protections.OpenRisky.Count == 0 &&
+           first.Protections.OpenPlugins.Count == 0,
+        "null entries in the protection lists should be dropped and null lists repaired");
+    Assert(first.Protections.IsOpen(CommandKind.Chat, "say") && !first.Protections.IsOpen(CommandKind.Chat, "tell") &&
+           !first.Protections.IsOpen(CommandKind.Plugin, null),
+        "repaired protections should still work: only the listed group is open");
+    var second = configuration.Reactions[1];
+    Assert(second.Senders.Anyone && second.Protections.Chat && second.Protections.Risky && second.Protections.Plugins,
+        "a trigger with no senders keeps reacting to anyone (as before filters existed), with every protection on");
+    Assert(configuration.DefaultProtections.OpenChat.Count == 0 && configuration.DefaultCommandWhitelist.Count == 0 &&
+           configuration.DefaultEnabledChannels.Count == 0,
+        "the defaults for new triggers should be repaired too");
+    Assert(configuration.CustomChannels.Count == 1 && configuration.CustomChannels[0].ChatType == 77 &&
+           configuration.CustomChannels[0].Name == string.Empty,
+        "null and out-of-range custom channels should be dropped");
+    Assert(configuration.MaxRegexLength > 0, "a negative pattern length limit should be reset");
+    Assert(Enum.IsDefined(configuration.Accent), "an unknown accent color should be reset");
+
+    var replies = configuration.EmoteReplies;
+    Assert(replies.Senders != null && !replies.Senders.Anyone && replies.Senders.Named != null,
+        "missing emote reply senders should get the safe default, not Anyone");
+    Assert(replies.PerPlayerCooldownSeconds >= EmoteReplySettings.MinimumCooldownSeconds,
+        "a negative reply wait should be raised to the minimum");
+    Assert(replies.BlockedEmotes.SequenceEqual(["/sit"]), "null and duplicate blocked emotes should be dropped");
+    Assert(replies.Overrides.Count == 1 && replies.Overrides[0].When == "/dote" && replies.Overrides[0].Reply == "/joy",
+        "null overrides, and overrides with no emote to match, should be dropped");
+    string Canon(string command) => command.Trim().ToLowerInvariant();
+    Assert(EmoteReplySettings.ReplyFor(replies.Overrides, "/dote", Canon) == "/joy" &&
+           EmoteReplySettings.ReplyFor(replies.Overrides, "/wave", Canon) == "/wave",
+        "an override with no emote should never match");
+
+    var follow = configuration.Follow;
+    Assert(follow.CallNames == string.Empty && follow.FollowWords.Length > 0 && follow.StopWords.Length > 0 &&
+           follow.ComeWords != null && follow.NotNearbyMessage != null,
+        "null Follow mode words should be repaired");
+    Assert(follow.Channels.SequenceEqual([13]), "Follow mode channels should be deduplicated and kept in range");
+    Assert(follow.Senders.Named != null && follow.NeverFrom.Count == 0 && follow.OnlyFollow.Count == 0 &&
+           follow.NeverFollow.Count == 0 && follow.StopCommands.SequenceEqual(["/echo stopped"]),
+        "Follow mode lists should be repaired, without null or blank entries");
+    Assert(FollowParser.Parse("Ami follow me", follow.CallNames, follow.FollowWords, follow.StopWords, follow.ComeWords!).Kind ==
+           FollowRequestKind.None,
+        "with no call name, repaired Follow settings should take no requests (and not throw)");
+
+    var mimic = configuration.Mimic;
+    Assert(mimic.CallNames != null && mimic.MimicWords != null && mimic.StopWords != null && mimic.NotNearbyMessage != null &&
+           mimic.Channels != null && mimic.Senders?.Named != null && mimic.NeverFrom != null && mimic.OnlyMimic.Count == 0 &&
+           mimic.NeverMimic != null,
+        "null Mimic settings should be repaired");
+    Assert(mimic.DelaySeconds == MimicSettings.MaxDelaySeconds && mimic.RepeatGuardSeconds == 0f,
+        "a huge delay and a negative repeat guard should be clamped");
+});
+
 var future = new Configuration { Version = ConfigVersion.CURRENT + 1 };
 AssertThrows<InvalidOperationException>(() => ConfigurationMigrator.MigrateAndNormalize(future), "future config should be rejected");
 
@@ -166,6 +234,10 @@ RunCommandPolicyTests();
 RunSenderFilterTests();
 RunRateLimiterTests();
 RunFollowTests();
+RunCommandPolicyBypassTests();
+RunHostileCaptureTests();
+RunHostileConfigTests();
+RunHostileFollowTests();
 
 Console.WriteLine("All PuppetMasterKK tests passed.");
 return;
@@ -1176,8 +1248,12 @@ static void RunCommandPolicyTests()
         "/wait from a sender's text should run once allowed");
     Assert(!CommandPolicy.IsWaitAllowed(catalog, true, catalog.CanonicalSet(["/wait"]), catalog.CanonicalSet(["/wait"]), out _),
         "a /wait block entry should always win");
-    Assert(ReactionCommandMatcher.TemplateHasWait("/wave\n/WAIT 2") && !ReactionCommandMatcher.TemplateHasWait(ReactionCommandMatcher.PhraseReplacement),
-        "only the reaction's own commands count as containing /wait");
+    Assert(ReactionCommandMatcher.TemplateWaitLines("/wave\n/WAIT 2\n/$1").SequenceEqual([false, true, false]) &&
+           !ReactionCommandMatcher.TemplateWaitLines(ReactionCommandMatcher.PhraseReplacement).Any(wait => wait),
+        "only a template line that is itself /wait is the trigger's own pause");
+    Assert(!ReactionCommandMatcher.IsTemplateWait([true], 1) && !ReactionCommandMatcher.IsTemplateWait([true], -1),
+        "lines past the template's end are never the trigger's own pause");
+    Assert(ReactionCommandMatcher.SplitLines("/a\r\n/b\r/c\n/d").Length == 4, "every kind of line break splits commands");
 
     Assert(ReactionCommandMatcher.EscapeTriggerPhrase("please.do") == @"please\.do", "trigger phrases should be literal text");
     Assert(ReactionCommandMatcher.EscapeTriggerPhrase("hey (you|simon says") == @"hey\ \(you|simon\ says",
@@ -1431,4 +1507,274 @@ static void RunFollowTests()
     Assert(broken.Follow != null && broken.Follow.Channels != null, "a missing follow section should be repaired");
 
     Console.WriteLine("PASS follow mode");
+}
+
+// Ways a sender (or a careless template) might try to get a forbidden command past the protections. Each line goes
+// the way a run sends it: parsed by FormatCommand, then classified and checked by its command name.
+static void RunCommandPolicyBypassTests()
+{
+    var catalog = new CommandCatalog(
+        [
+            ["/logout"],
+            ["/shutdown"],
+            ["/say", "/s"],
+            ["/teleport", "/tp"],
+            ["/action", "/ac"],
+            ["/follow"],
+        ],
+        [
+            ["/wave"],
+            ["/dance"],
+        ]);
+    var none = catalog.CanonicalSet([]);
+
+    // Worst case by default: any game command allowed, and the command's own protection switched off.
+    bool Runs(CommandCatalog commands, string line, IEnumerable<string> allow, bool allowAll = true, bool noProtections = false,
+              bool open = true, Func<string, bool>? plugin = null)
+    {
+        var parsed = ReactionCommandMatcher.FormatCommand(line);
+        if (parsed.Main.Length == 0)
+            return false;
+        return CommandPolicy.IsAllowed(commands.Canonicalize(parsed.Main), commands.Classify(parsed.Main, plugin),
+            commands.CanonicalSet(allow), none, allowAll, out _, noProtections, open);
+    }
+
+    string[] alwaysBlocked =
+    [
+        "/LOGOUT", "/LoGoUt", "  /logout  ", "\t/logout", "/logout\u3000now", "/logout\u00A0now", "/logout\tnow",
+        "/SHUTDOWN", "/XLPLUGINS", "/xlSettings", "/xldev", "/PMKK", "/PuppetMasterKK", "/puppetmaster",
+    ];
+    foreach (var line in alwaysBlocked)
+    {
+        Assert(!Runs(catalog, line, [line.Trim(), "/logout", "/shutdown", "/xlplugins", "/pmkk"], plugin: _ => true),
+            $"\"{line}\" should never run, whatever its case or spacing, even listed under Allowed, with any game command " +
+            "allowed and its protection off");
+    }
+    var german = new CommandCatalog([["/folgen", "/follow"], ["/abmelden", "/logout"]], []);
+    Assert(!Runs(german, "/ABMELDEN", ["/abmelden"], plugin: _ => true),
+        "the client's own name for /logout should be blocked in any case, even listed");
+
+    // Look-alikes the catalog doesn't know: never commands while protections are on.
+    string[] lookAlikes =
+    [
+        "\uFF0Flogout", "/\uFF4C\uFF4F\uFF47\uFF4F\uFF55\uFF54", "\uFF0Ffollow", "/\uFF46\uFF4F\uFF4C\uFF4C\uFF4F\uFF57",
+        "/log\u200Bout", "/fol\u200Blow", "/logout\u0301",
+    ];
+    foreach (var line in lookAlikes)
+    {
+        Assert(!Runs(catalog, line, [], plugin: command => command == "/hello"),
+            $"the look-alike \"{line}\" is not a known command, so it should never run while protections are on");
+    }
+    Assert(ReactionCommandMatcher.FormatCommand("\uFF0Flogout").Main == "\uFF0Flogout",
+        "a full-width slash doesn't start a command: the whole line is plain text");
+    Assert(catalog.Classify("\uFF0F\uFF4C\uFF4F\uFF47\uFF4F\uFF55\uFF54") == CommandKind.Blocked &&
+           catalog.Classify("\u200B/logout") == CommandKind.Blocked,
+        "look-alikes of an always-blocked command are blocked too, in case the game reads them as the real one");
+    Assert(catalog.Classify("\uFF0F\uFF46\uFF4F\uFF4C\uFF4C\uFF4F\uFF57") == CommandKind.FollowOnly &&
+           catalog.Classify("\u200B/follow") == CommandKind.FollowOnly,
+        "look-alikes of /follow belong to Follow mode only");
+    Assert(catalog.Classify("/follow\u200Bme") == CommandKind.FollowOnly && catalog.Classify("/logout\u200Bnow") == CommandKind.Blocked,
+        "an invisible character right after the name is caught too, in case the game ends the name there");
+    Assert(catalog.Classify("\uFF0F\uFF44\uFF41\uFF4E\uFF43\uFF45") == CommandKind.Unknown,
+        "a look-alike is never allowed as the real command (a full-width /dance is not an emote)");
+    Assert(!Runs(catalog, "\uFF0Ffollow", [], noProtections: true),
+        "a full-width /follow should stay blocked even with protections off");
+
+    Assert(!Runs(catalog, "/nonsense", []) && !Runs(catalog, "/nonsense now", []),
+        "an unknown command should never run with protections on, even with any game command allowed");
+    Assert(!Runs(catalog, "hello everyone", []) && !Runs(catalog, "logout", []) && !Runs(catalog, "s hi", []),
+        "a plain text line (no leading /) is not a command and should never run with protections on");
+    Assert(ReactionCommandMatcher.FormatCommand("hello everyone").Main == "hello everyone" &&
+           ReactionCommandMatcher.FormatCommand("hello everyone").Args.Length == 0,
+        "plain text should not be split into a command name and arguments");
+    Assert(Runs(catalog, "/s hi", [], allowAll: false) && !Runs(catalog, "/s hi", [], allowAll: true, open: false),
+        "a chat command runs only when its protection is off (or it's listed), never because any game command is allowed");
+
+    string[] follows = ["/follow", "/FOLLOW", " /follow <t>", "/follow\u3000<t>", "/Follow\t[t]"];
+    foreach (var line in follows)
+    {
+        Assert(!Runs(catalog, line, ["/follow"], noProtections: true),
+            $"\"{line}\" belongs to Follow mode: a trigger never sends it, even listed and without protections");
+    }
+    Assert(german.Classify("/folgen") == CommandKind.FollowOnly && german.Classify("/FOLLOW") == CommandKind.FollowOnly &&
+           !Runs(german, "/folgen <t>", ["/folgen"], noProtections: true),
+        "the client's own name for /follow should be Follow mode's too, even without protections");
+    Assert(!CommandPolicy.IsAllowed("/follow", CommandKind.Unknown, none, none, true, out _, noProtections: true, open: true),
+        "/follow should be refused by name even if it was classified as something else");
+
+    var allOff = new ProtectionSettings { Chat = false, Risky = false, Plugins = false };
+    foreach (var command in new[] { "/logout", "/shutdown", "/xlplugins", "/pmkk", "/follow" })
+    {
+        var kind = catalog.Classify(command, _ => true);
+        Assert(!CommandPolicy.IsAllowed(catalog.Canonicalize(command), kind, catalog.CanonicalSet([command]), none, true, out _,
+                open: allOff.IsOpen(kind, "anything")),
+            $"{command} should stay blocked with every protection switched off and it listed under Allowed");
+    }
+    Assert(!new ProtectionSettings().IsOpen(CommandKind.Plugin, null) && !allOff.IsOpen(CommandKind.Unknown, null) &&
+           !allOff.IsOpen(CommandKind.Game, null) && !allOff.IsOpen(CommandKind.Blocked, null),
+        "a plugin command whose owner isn't known stays protected; switches never open unknown, game or blocked commands");
+
+    Assert(CommandPolicy.ConvertPlaceholders("[pos] [flag] [se.1] [hp] [Me] [[t]] [t") == "[pos] [flag] [se.1] [hp] <Me> [[t]] [t",
+        "only the safe target placeholders convert; everything else stays literal");
+
+    Console.WriteLine("PASS command policy bypass attempts");
+}
+
+// A regex trigger's captures are someone else's text, substituted into the trigger's commands.
+static void RunHostileCaptureTests()
+{
+    var catalog = new CommandCatalog([["/logout"], ["/say", "/s"], ["/echo", "/e"], ["/follow"]], [["/wave"]]);
+    var none = catalog.CanonicalSet([]);
+    var order = new Regex(@"^order (.+)$", RegexOptions.None, TimeSpan.FromMilliseconds(250));
+
+    // What a run does with a message: sanitize it, build the commands, split them into lines.
+    string[] Lines(Regex pattern, string replacement, string message)
+    {
+        var status = ReactionCommandMatcher.TryGenerateCommand(pattern, ReactionCommandMatcher.SanitizeIncoming(message),
+            replacement, out var command, out _);
+        return status == ReactionMatchStatus.Success ? Regex.Split(command, "\r\n|\r|\n") : Array.Empty<string>();
+    }
+
+    // Whether any line would run, with any game command allowed and every protection switch off.
+    bool AnyRuns(string[] lines, bool noProtections = false)
+    {
+        foreach (var line in lines)
+        {
+            var parsed = ReactionCommandMatcher.FormatCommand(line);
+            if (parsed.Main.Length > 0 &&
+                CommandPolicy.IsAllowed(catalog.Canonicalize(parsed.Main), catalog.Classify(parsed.Main), none, none, true, out _,
+                    noProtections, open: true))
+                return true;
+        }
+        return false;
+    }
+
+    foreach (var breaker in new[] { "\n", "\r", "\r\n", "\u0085", "\u000B", "\u000C", "\0" })
+    {
+        var lines = Lines(order, "/say $1", $"order hi{breaker}/logout");
+        Assert(lines.Length == 1 && ReactionCommandMatcher.FormatCommand(lines[0]).Main == "/say",
+            $"a line break (U+{(int)breaker[^1]:X4}) in a capture must not start a second command");
+    }
+    var separated = Lines(order, "/say $1", "order hi\u2028/logout\u2029/shutdown");
+    Assert(separated.Length == 1 && ReactionCommandMatcher.FormatCommand(separated[0]).Main == "/say",
+        "Unicode line and paragraph separators must not split a message into several commands either");
+
+    var named = Lines(order, "/$1", "order LOGOUT");
+    Assert(named.SequenceEqual(["/LOGOUT"]) && !AnyRuns(named) && AnyRuns(Lines(order, "/$1", "order wave")),
+        "a capture that names /logout should be refused like the command itself (an emote still runs)");
+    Assert(!AnyRuns(Lines(order, "/$1", "order follow me"), noProtections: true),
+        "a capture that names /follow should be refused even without protections");
+    Assert(!AnyRuns(Lines(order, "/$1", "order \uFF4C\uFF4F\uFF47\uFF4F\uFF55\uFF54")) &&
+           !AnyRuns(Lines(order, "$1", "order \uFF0Flogout")),
+        "full-width look-alikes from a capture are not commands");
+    Assert(Lines(order, "/echo $1", "order $0 $1 ${1} $$ $+ $_").SequenceEqual(["/echo $0 $1 ${1} $$ $+ $_"]),
+        "substitution tokens inside a capture are text: they're never expanded again");
+    var placed = ReactionCommandMatcher.FormatCommand(Lines(order, "/echo $1", "order <pos> <flag> [pos] <se.1>")[0]);
+    Assert(!placed.Args.Contains('<') && !placed.Args.Contains('>') && placed.Args.Contains("[pos]"),
+        "a capture can never carry a game placeholder (only the safe [t]-style ones convert)");
+
+    var phrase = new Regex(ReactionCommandMatcher.BuildPhrasePattern("please do"), RegexOptions.None, TimeSpan.FromMilliseconds(250));
+    var replacement = ReactionCommandMatcher.PhraseReplacement;
+    Assert(Lines(phrase, replacement, "please do (wave)\n/logout").SequenceEqual(["/wave"]),
+        "text after the command in a phrase message is never run");
+    Assert(!AnyRuns(Lines(phrase, replacement, "please do (logout)")) && !AnyRuns(Lines(phrase, replacement, "please do xlplugins")) &&
+           !AnyRuns(Lines(phrase, replacement, "please do (/logout)")) &&
+           !AnyRuns(Lines(phrase, replacement, "please do (follow <t>)"), noProtections: true),
+        "phrase mode should refuse blocked commands and /follow like any other");
+
+    var evil = new Regex(@"^(\w+\s?)*$", RegexOptions.None, TimeSpan.FromMilliseconds(50));
+    var watch = System.Diagnostics.Stopwatch.StartNew();
+    var evilStatus = ReactionCommandMatcher.TryGenerateCommand(evil, new string('a', 64) + "!", "/$1", out _, out _);
+    Assert((evilStatus == ReactionMatchStatus.TimedOut || evilStatus == ReactionMatchStatus.NoMatch) &&
+           watch.Elapsed < TimeSpan.FromSeconds(5),
+        "a pattern that backtracks forever should time out, not hang or throw");
+
+    Console.WriteLine("PASS hostile captures");
+}
+
+static void RunHostileConfigTests()
+{
+    // Numbers too big for the setting: the whole file is unreadable (the plugin keeps it aside and starts from defaults).
+    AssertThrows<Newtonsoft.Json.JsonException>(
+        () => DalamudJson.Load("{\"Version\": 5, \"Reactions\": [{\"CooldownSeconds\": 99999999999999999999}]}"),
+        "a cooldown too big for a number should make the file unreadable, not wrap around");
+    AssertThrows<Newtonsoft.Json.JsonException>(() => DalamudJson.Load("{\"Version\": 99999999999}"),
+        "a version too big for a number should make the file unreadable");
+    AssertThrows<Newtonsoft.Json.JsonException>(() => DalamudJson.Load("{\"Version\": null}"),
+        "a null version should make the file unreadable");
+    AssertThrows<Newtonsoft.Json.JsonException>(
+        () => DalamudJson.Load("{\"Version\": 5, \"Unknown\": " + new string('[', 100_000) + new string(']', 100_000) + "}"),
+        "a deeply nested file should be refused, not overflow the stack");
+    var newest = DalamudJson.Load("{\"Version\": 2147483647}");
+    AssertThrows<InvalidOperationException>(() => ConfigurationMigrator.MigrateAndNormalize(newest),
+        "a version from the far future should be refused, not migrated");
+
+    // The old Puppet Master's file is read with plain Newtonsoft defaults: "$type" must never choose what's created.
+    var typed = Newtonsoft.Json.JsonConvert.DeserializeObject<Configuration>(
+        "{\"$type\": \"System.IO.FileInfo, System.IO.FileSystem\", \"Version\": 5, \"Reactions\": " +
+        "[{\"$type\": \"Evil.Payload, Evil\", \"Name\": \"x\"}]}");
+    Assert(typed != null && typed.GetType() == typeof(Configuration) && typed.Reactions.Count == 1 &&
+           typed.Reactions[0].GetType() == typeof(Reaction) && typed.Reactions[0].Name == "x",
+        "type names in a settings file should be ignored");
+
+    var weird = new Configuration { TextScale = float.NaN };
+    weird.Mimic.DelaySeconds = float.PositiveInfinity;
+    weird.Mimic.RepeatGuardSeconds = float.NaN;
+    ConfigurationMigrator.MigrateAndNormalize(weird);
+    Assert(float.IsFinite(weird.TextScale) && weird.Mimic.DelaySeconds == 0f && weird.Mimic.RepeatGuardSeconds == 3f,
+        "NaN and infinite numbers should be replaced with safe ones");
+    Assert(!ConfigurationMigrator.MigrateAndNormalize(weird), "repairing them should be idempotent");
+
+    Console.WriteLine("PASS hostile configuration");
+}
+
+static void RunHostileFollowTests()
+{
+    FollowRequest Parse(string message)
+        => FollowParser.Parse(ReactionCommandMatcher.SanitizeIncoming(message), "Ami", "follow", "stop", "come", "mimic");
+
+    var placeholder = Parse("Ami follow <pos>");
+    Assert(placeholder.Kind == FollowRequestKind.Follow && !placeholder.Target.Contains('<') && !placeholder.Target.Contains('>'),
+        "a requested name can't hold a game placeholder");
+    Assert(FollowParser.FormatReply("Sorry, I don't see <target> near me.", placeholder.Target) == "Sorry, I don't see pos near me.",
+        "the not-nearby reply should never carry a placeholder from the sender's text");
+    Assert(FollowParser.FormatReply("I see <target>", "<target>") == "I see target",
+        "a requested name can't bring <target> (or any placeholder) back into the reply");
+    var mimicked = Parse("Ami mimic <t>");
+    Assert(mimicked.Kind == FollowRequestKind.Mimic && !mimicked.Target.Contains('<'),
+        "a mimic request can't hold a game placeholder either");
+
+    var injected = Parse("Ami follow Nova\n/logout\r/shutdown");
+    Assert(injected.Kind == FollowRequestKind.Follow && injected.Target.IndexOfAny(['\r', '\n']) < 0,
+        "a line break can't sneak a second command into a follow request");
+    Assert(FollowParser.FindNearby(FollowParser.SplitName(injected.Target), [new("Nova Ral'veth", "Exodus")]) == -1,
+        "extra text after a name should match nobody, not the first word");
+    Assert(Parse("Ami follow ME!!") == new FollowRequest(FollowRequestKind.Follow, "") &&
+           Parse("Ami follow  myself ") == new FollowRequest(FollowRequestKind.Follow, ""),
+        "\"me\" in any case means the sender");
+
+    Assert(FollowParser.SplitName("Nova@Exodus@Evil") == new PlayerName("Nova", "Exodus@Evil") &&
+           FollowParser.FindNearby(FollowParser.SplitName("Nova@Exodus@Evil"), [new("Nova", "Exodus")]) == -1,
+        "a second @ is part of the world, so it matches no real world");
+    Assert(FollowParser.FindNearby(FollowParser.SplitName("@Exodus"), [new("Nova Ral'veth", "Exodus")]) == -1 &&
+           FollowParser.FindNearby(FollowParser.SplitName("   "), [new("Nova Ral'veth", "Exodus")]) == -1,
+        "a request with no name matches nobody");
+    Assert(!FollowParser.MayFollow(new("Nova Ral'veth", "Ultros"), ["Nova Ral'veth@Exodus"], []) &&
+           !FollowParser.MayFollow(new("Nova Ral'veth", ""), ["Nova Ral'veth@Exodus"], []),
+        "the only list should not let a same-named player from another (or an unknown) world through");
+
+    var watch = System.Diagnostics.Stopwatch.StartNew();
+    var huge = Parse("Ami follow " + new string('a', 100_000));
+    _ = Parse("Ami follow a" + string.Concat(Enumerable.Repeat(" .", 20_000)) + "b");
+    Assert(watch.Elapsed < TimeSpan.FromSeconds(5),
+        "a huge or backtracking-bait request should be answered (or given up on) quickly");
+    Assert(FollowParser.FormatReply("I don't see <target>", huge.Target).Length < 100,
+        "a huge requested name should be cut so the tell stays short");
+
+    // Two players with the same full name on different worlds: picking one would be a guess.
+    PlayerName[] twins = [new("Nova Ral'veth", "Exodus"), new("Nova Ral'veth", "Ultros")];
+    Assert(FollowParser.FindNearby(new("Nova Ral'veth", ""), twins) == -1,
+        "a full name two nearby players share (on different worlds) is ambiguous: the sender has to name the world");
+
+    Console.WriteLine("PASS hostile follow requests");
 }

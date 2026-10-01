@@ -1,0 +1,63 @@
+{
+  "$type": "Evil.Payload, Evil.Assembly",
+  "Version": 5,
+  "CustomChannels": [null, { "ChatType": 2147483647, "Name": null }, { "ChatType": 77, "Name": null }],
+  "Reactions": [
+    null,
+    {
+      "$type": "System.IO.FileInfo, System.IO.FileSystem",
+      "Enabled": true,
+      "Name": null,
+      "TriggerPhrase": null,
+      "CooldownSeconds": 2147483647,
+      "ExecutionPolicy": 2147483647,
+      "EnabledChannels": [2147483647, -2147483648, 13, 13],
+      "CommandWhitelist": [null, "", "/logout", "/LOGOUT"],
+      "CommandBlacklist": null,
+      "Senders": { "Anyone": false, "Named": [null, " ", "Nova Ral'veth@Exodus"] },
+      "Protections": { "Chat": true, "OpenChat": [null, "say"], "OpenRisky": null, "OpenPlugins": [null] }
+    },
+    { "Senders": null, "Protections": null, "CooldownSeconds": -2147483648 }
+  ],
+  "DefaultProtections": { "OpenChat": [null] },
+  "DefaultCommandWhitelist": [null],
+  "DefaultEnabledChannels": [-1, 70000],
+  "MaxRegexLength": -1,
+  "TextScale": 1,
+  "Accent": 999,
+  "EmoteReplies": {
+    "Enabled": true,
+    "PerPlayerCooldownSeconds": -2147483648,
+    "Senders": null,
+    "BlockedEmotes": [null, "/sit", "/SIT"],
+    "Overrides": [null, { "When": null, "Reply": null }, { "When": "/dote", "Reply": "/joy" }]
+  },
+  "Follow": {
+    "Enabled": true,
+    "CallNames": null,
+    "FollowWords": null,
+    "StopWords": null,
+    "ComeWords": null,
+    "NotNearbyMessage": null,
+    "Channels": [13, 13, -5],
+    "Senders": { "Named": null },
+    "NeverFrom": [null],
+    "OnlyFollow": null,
+    "NeverFollow": [null, ""],
+    "StopCommands": [null, "/echo stopped"]
+  },
+  "Mimic": {
+    "Enabled": true,
+    "CallNames": null,
+    "MimicWords": null,
+    "StopWords": null,
+    "NotNearbyMessage": null,
+    "Channels": null,
+    "Senders": null,
+    "NeverFrom": null,
+    "OnlyMimic": [null],
+    "NeverMimic": null,
+    "DelaySeconds": 1e30,
+    "RepeatGuardSeconds": -1e30
+  }
+}

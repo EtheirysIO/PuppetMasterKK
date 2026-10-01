@@ -14,13 +14,14 @@ PuppetMasterKK lets trusted chat messages boss your character around. A matching
 
 ## What it can do
 
-- React to simple phrases or messages with changing text.
-- Listen only to the chat channels you choose, and only to the people you choose: friends, your Free Company, your party, or named players.
-- Allow safe commands and block commands you do not want. Logging out, shutting down, and Dalamud's or PuppetMasterKK's own commands are never allowed; teleporting, chat and other plugins' commands must be allowed one at a time.
-- Ignore repeated requests, save them for later, keep only the newest, or react again immediately.
-- Run several command lines with short waits between them.
-- Answer emotes aimed at you with the same emote (formerly the Right Back At You plugin).
-- Follow whoever asks ("Ami follow"), or the player they name, and stop everything on request ("Ami stop").
+- React to a phrase ("please do wave") or to a regex pattern whose captured text goes into your commands.
+- Listen only to the chat channels you pick, and only to the people you pick: friends, your Free Company, your party, or named players.
+- Protect you by default: emotes run, other commands only when you allow them. Chat channels, risky game commands (teleport, party, gear, trade...) and other plugins' commands stay protected unless you switch their protection off. Logging out, shutting down, `/follow`, and Dalamud's or PuppetMasterKK's own commands never run.
+- Turn every protection off for a trigger you fully trust (two confirmations; `/follow` still never runs).
+- Ignore repeated requests, queue them, keep only the newest, or restart right away. Run several command lines with waits between them.
+- Answer emotes aimed at you with the same emote, or with another one you pick (formerly the Right Back At You plugin).
+- Follow mode: "Ami follow me", "Ami follow Nova", or "Ami come" makes you follow that player, walking there first with vnavmesh when they're far away. "Ami stop" stops everything.
+- Mimic: "Ami mimic me" makes you copy that player's emotes until "Ami stop".
 - Show incoming messages, what's running and waiting, and recent activity inside the plugin.
 
 ## Useful commands
@@ -29,8 +30,8 @@ PuppetMasterKK lets trusted chat messages boss your character around. A matching
 /pmkk
 /pmkk on
 /pmkk off
-/pmkk on <ReactionName>
-/pmkk off <ReactionName>
+/pmkk on <TriggerName>
+/pmkk off <TriggerName>
 /pmkk viz
 ```
 
@@ -71,7 +72,7 @@ The UI comes from the phys1ksUI kit, compiled in as source: it must sit next to 
 
 | Folder | What's in it |
 | --- | --- |
-| `PuppetMasterKK` | The plugin: `Chat` (matching, sender and command rules, running triggers), `Config` (settings and upgrades), `Emotes` (emote replies), `Diagnostics` (message log, activity), `UI` (the window). |
+| `PuppetMasterKK` | The plugin: `Chat` (matching, sender and command rules, running triggers), `Config` (settings and upgrades), `Emotes` (emote replies), `Follow` (Follow mode, Mimic, walking with vnavmesh), `Diagnostics` (message log, activity), `UI` (the window). |
 | `PuppetMasterKK.Tests` | A console test runner for everything that doesn't need the game, with sample old configs in `TestConfigs`. |
 | `lib/ECommons` | ECommons (git submodule). |
 | `docs` | The user guide. |

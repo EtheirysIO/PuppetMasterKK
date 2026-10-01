@@ -14,6 +14,9 @@ internal readonly record struct SenderInfo(
     bool IsParty)
 {
     public static SenderInfo Unknown { get; } = new(string.Empty, string.Empty, false, false, false, false);
+
+    // "Name@World", for per-player cooldowns.
+    public string Key => $"{Name}@{World}";
 }
 
 // Who may trigger a reaction (or get an emote reply). The defaults are what a new reaction gets; reactions from
