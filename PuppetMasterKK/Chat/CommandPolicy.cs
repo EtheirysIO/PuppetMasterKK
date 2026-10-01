@@ -179,16 +179,16 @@ internal static class CommandPolicy
             reason = "only Follow mode can follow";
             return false;
         }
-        if (blacklist.Contains(canonicalCommand))
-        {
-            reason = "blocked by this trigger";
-            return false;
-        }
-        // A trigger with no protections runs everything except its own Blocked list and /follow.
+        // A trigger with no protections runs everything but /follow; its Allowed and Blocked lists are off too.
         if (noProtections)
         {
             reason = "this trigger has no protections";
             return true;
+        }
+        if (blacklist.Contains(canonicalCommand))
+        {
+            reason = "blocked by this trigger";
+            return false;
         }
         if (kind == CommandKind.Blocked || IsAlwaysBlocked(canonicalCommand))
         {
@@ -231,13 +231,18 @@ internal static class CommandPolicy
         out string reason,
         bool noProtections = false)
     {
+        if (noProtections)
+        {
+            reason = "pause";
+            return true;
+        }
         var localized = catalog.Canonicalize(WaitCommand);
         if (blacklist.Contains(WaitCommand) || blacklist.Contains(localized))
         {
             reason = "blocked by this trigger";
             return false;
         }
-        if (noProtections || fromReactionCommands || whitelist.Contains(WaitCommand) || whitelist.Contains(localized))
+        if (fromReactionCommands || whitelist.Contains(WaitCommand) || whitelist.Contains(localized))
         {
             reason = "pause";
             return true;

@@ -1124,10 +1124,10 @@ static void RunCommandPolicyTests()
     Assert(Unprotected("/logout", []) && Unprotected("/sh", []) && Unprotected("/hello", [], _ => true) &&
            Unprotected("/pmkk", []) && Unprotected("/nonsense", []),
         "a trigger without protections should run everything, unlisted");
-    Assert(!Unprotected("/sh", ["/shout"]) && !Unprotected("/follow", []),
-        "without protections, the trigger's own Blocked list and /follow still hold");
-    Assert(CommandPolicy.IsWaitAllowed(catalog, false, catalog.CanonicalSet([]), catalog.CanonicalSet([]), out _, noProtections: true),
-        "without protections, a sender's /wait runs too");
+    Assert(Unprotected("/sh", ["/shout"]) && !Unprotected("/follow", []),
+        "without protections, the Blocked list is off too, but /follow stays Follow mode's");
+    Assert(CommandPolicy.IsWaitAllowed(catalog, false, catalog.CanonicalSet([]), catalog.CanonicalSet(["/wait"]), out _, noProtections: true),
+        "without protections, a sender's /wait runs too, even when blocked");
     Assert(!Allowed("/pmkk", ["/pmkk"], [], true) && !Allowed("/puppetmasterkk", ["/puppetmasterkk"], [], true),
         "this plugin's commands should never run, even when listed and with any game command allowed");
 

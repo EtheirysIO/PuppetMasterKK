@@ -232,7 +232,7 @@ internal sealed partial class MainWindow
 
         if (Modal.Confirm("Turn off every protection?##noProtections1", ref confirmNoProtections,
                           "Turn off every protection for this trigger?", "Continue", danger: true,
-                          detail: "Anyone who can trigger it could log you out, close the game, teleport you, post anything in any chat channel, and run any plugin's commands. Only this trigger's Blocked list still applies."))
+                          detail: "Anyone who can trigger it could log you out, close the game, teleport you, post anything in any chat channel, and run any plugin's commands. Its Allowed and Blocked lists are switched off too."))
         {
             noProtectionsUnderstood = false;
             confirmNoProtectionsAgain = true;
@@ -269,7 +269,7 @@ internal sealed partial class MainWindow
                             ? "Anyone in the channels you picked can trigger this, including strangers in Say, Yell, Shout and cross-world linkshells."
                             : null);
         DrawChannelsCard(reaction);
-        DrawCommandsCard(reaction);
+        DrawEmoteTextCard(reaction);
         DrawProtectionsCard(reaction);
         DrawTestCard(reaction);
         DrawTimingCard(reaction);
@@ -402,10 +402,9 @@ internal sealed partial class MainWindow
         }
     }
 
-    private void DrawCommandsCard(Reaction reaction)
+    private void DrawEmoteTextCard(Reaction reaction)
     {
-        var note = reaction.AllowAllCommands ? "Any game command" : $"{reaction.CommandWhitelist.Count} allowed";
-        using (W.Card("commands", "Commands", note))
+        using (W.Card("emoteText", "Emotes"))
         {
             var motionOnly = reaction.MotionOnly;
             if (W.Toggle("Hide emote text##motionOnly", ref motionOnly,
@@ -414,41 +413,43 @@ internal sealed partial class MainWindow
                 reaction.MotionOnly = motionOnly;
                 RulesChanged(reaction);
             }
-
-            Gap();
-            Label("Which commands can run?");
-            var mode = reaction.AllowAllCommands ? 1 : 0;
-            if (W.Segmented("##commandMode", CommandModes, ref mode, W.SegmentedWidth(CommandModes)))
-            {
-                if (mode == 1)
-                {
-                    allowAllTarget = reaction;
-                    confirmAllowAll = true;
-                }
-                else
-                {
-                    reaction.AllowAllCommands = false;
-                    RulesChanged(reaction);
-                }
-            }
-
-            // Shown in both modes: with "Any game command", chat and plugin commands still have to be listed here.
-            Gap();
-            W.Heading(reaction.AllowAllCommands ? "Also allowed (chat and plugin commands)" : "Allowed");
-            if (StringListEditor("allow", reaction.CommandWhitelist, ref allowInput, "/command",
-                                 reaction.AllowAllCommands ? "None." : "None. Emotes still run.",
-                                 input => PluginUiLogic.AddCommandRule(reaction.CommandWhitelist, reaction.CommandBlacklist, input)))
-                RulesChanged(reaction);
-
-            Gap();
-            W.Heading("Blocked");
-            if (StringListEditor("block", reaction.CommandBlacklist, ref blockInput, "/command", "Nothing blocked.",
-                                 input => PluginUiLogic.AddCommandRule(reaction.CommandBlacklist, reaction.CommandWhitelist, input)))
-                RulesChanged(reaction);
-
-            Gap(2f);
-            Hint("Emotes always run unless you block them. Chat commands (/say, /shout, /tell, /party, /fc…), other plugins' commands, and commands like teleporting, leaving the party or changing gear only run if you add them to the Allowed list. /logout, /shutdown, /follow (use Follow mode instead), /pmkk and /xl commands never run.");
         }
+    }
+
+    private void DrawCommandLists(Reaction reaction)
+    {
+        Label("Which commands can run?");
+        var mode = reaction.AllowAllCommands ? 1 : 0;
+        if (W.Segmented("##commandMode", CommandModes, ref mode, W.SegmentedWidth(CommandModes)))
+        {
+            if (mode == 1)
+            {
+                allowAllTarget = reaction;
+                confirmAllowAll = true;
+            }
+            else
+            {
+                reaction.AllowAllCommands = false;
+                RulesChanged(reaction);
+            }
+        }
+
+        // Shown in both modes: with "Any game command", chat and plugin commands still have to be listed here.
+        Gap();
+        W.Heading(reaction.AllowAllCommands ? "Also allowed (chat and plugin commands)" : "Allowed");
+        if (StringListEditor("allow", reaction.CommandWhitelist, ref allowInput, "/command",
+                             reaction.AllowAllCommands ? "None." : "None. Emotes still run.",
+                             input => PluginUiLogic.AddCommandRule(reaction.CommandWhitelist, reaction.CommandBlacklist, input)))
+            RulesChanged(reaction);
+
+        Gap();
+        W.Heading("Blocked");
+        if (StringListEditor("block", reaction.CommandBlacklist, ref blockInput, "/command", "Nothing blocked.",
+                             input => PluginUiLogic.AddCommandRule(reaction.CommandBlacklist, reaction.CommandWhitelist, input)))
+            RulesChanged(reaction);
+
+        Gap(2f);
+        Hint("Emotes always run unless you block them. Chat commands (/say, /shout, /tell, /party, /fc…), other plugins' commands, and commands like teleporting, leaving the party or changing gear only run if you add them to the Allowed list. /logout, /shutdown, /follow (use Follow mode instead), /pmkk and /xl commands never run.");
     }
 
     private void DrawNoProtectionsSecondConfirm()
@@ -473,11 +474,15 @@ internal sealed partial class MainWindow
 
     private void DrawProtectionsCard(Reaction reaction)
     {
-        using (W.Card("protections", "Protections", reaction.NoProtections ? "None" : null))
+        var note = reaction.NoProtections ? "None"
+                   : reaction.AllowAllCommands ? "Any game command" : $"{reaction.CommandWhitelist.Count} allowed";
+        using (W.Card("protections", "Protections", note))
         {
             if (reaction.NoProtections)
             {
-                W.Banner("Protections are off. Anyone who can trigger this can make your character run any command except /follow and the commands on this trigger's Blocked list.", Theme.Negative, icon: FontAwesomeIcon.ExclamationTriangle);
+                W.Banner("Protections are off. Anyone who can trigger this can make your character run any command except /follow. " +
+                         "Your Allowed and Blocked lists are kept and come back when you turn protections back on.",
+                         Theme.Negative, icon: FontAwesomeIcon.ExclamationTriangle);
                 if (W.SecondaryButton("Turn protections back on##protectionsOn"))
                 {
                     reaction.NoProtections = false;
@@ -486,6 +491,9 @@ internal sealed partial class MainWindow
                 return;
             }
 
+            DrawCommandLists(reaction);
+
+            Gap();
             var lifestream = Service.IsLifestreamLoaded();
             var allowLifestream = reaction.AllowLifestream;
             if (W.Toggle("Allow people to send Lifestream commands to you##allowLifestream", ref allowLifestream))

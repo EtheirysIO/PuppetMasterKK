@@ -91,15 +91,19 @@ internal sealed partial class MainWindow
         W.TextWrapped("New triggers start with these. Existing triggers keep their own settings.", Theme.Dim);
         Gap(4f);
 
-        using (W.Card("defaultCommands", "Commands"))
+        using (W.Card("defaultEmoteText", "Emotes"))
         {
             var motionOnly = Config.DefaultMotionOnly;
-            if (W.Toggle("Hide emote text##defaultMotionOnly", ref motionOnly))
+            if (W.Toggle("Hide emote text##defaultMotionOnly", ref motionOnly,
+                         tooltip: "The animation still plays, but the emote message isn't posted in chat"))
             {
                 Config.DefaultMotionOnly = motionOnly;
                 Changed();
             }
-            Gap();
+        }
+
+        using (W.Card("defaultProtections", "Protections"))
+        {
             Label("Which commands can run?");
             var mode = Config.DefaultAllowAllCommands ? 1 : 0;
             if (W.Segmented("##defaultCommandMode", CommandModes, ref mode, W.SegmentedWidth(CommandModes)))

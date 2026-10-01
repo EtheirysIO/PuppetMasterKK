@@ -129,16 +129,16 @@ Your own chat messages never trigger anything (**Settings → General → Ignore
 
 ## Command rules
 
-**Commands** decides how much control a trigger gets:
+Each trigger's **Protections** card decides how much control it gets:
 
 1. Commands under **Blocked** never run.
 2. Emotes run unless they're blocked.
 3. Other commands must be under **Allowed**, unless **Any game command** is selected.
 4. Chat commands (say, shout, tell, party, FC, linkshells, `/em`…), other plugins' commands, and game commands with real consequences (teleporting, `/return`, party commands such as leaving or kicking, gear sets, the blacklist and friend list, trading, inviting) only run when listed under **Allowed** (shown as **Also allowed** with **Any game command**).
-5. Each trigger's **Protections** card has **Allow people to send Lifestream commands to you**. Off (the default), Lifestream's commands (`/li`, `/lifestream`…) never run; on, they still have to be listed under **Allowed**.
+5. **Allow people to send Lifestream commands to you** is in the same card. Off (the default), Lifestream's commands (`/li`, `/lifestream`…) never run; on, they still have to be listed under **Allowed**.
 6. `/logout`, `/shutdown`, `/follow` (following is what [Follow mode](#follow-mode) is for), `/pmkk` (and `/puppetmasterkk`, and the old `/puppetmaster`) and Dalamud's `/xl…` commands never run.
 
-**Turn off all protections** (in **Protections**, after two confirmations) is for a trigger you trust completely: it then runs every command it's sent, unlisted, including the ones above. Only its own **Blocked** list and `/follow` still hold, and the sender filter and the send limit still apply. Turning it back on is one click; a duplicated trigger always starts with protections on.
+**Turn off all protections** (in **Protections**, after two confirmations) is for a trigger you trust completely: it then runs every command it's sent, unlisted, including the ones above. Its **Allowed** and **Blocked** lists are switched off too (they're kept for when you turn protections back on). Only `/follow` stays blocked, and the sender filter and the send limit still apply. Turning it back on is one click; a duplicated trigger always starts with protections on.
 
 Rules apply to the command name, not its arguments: for the Vercure example, allow `/ac`. A command's short forms count as the same command, so blocking `/shout` also blocks `/sh`.
 
