@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows7.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <DalamudLibPath Condition="'$(DalamudLibPath)' == ''">$(AppData)\XIVLauncher\addon\Hooks\dev\</DalamudLibPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The same Newtonsoft.Json that Dalamud loads plugin configs with. -->
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>$(DalamudLibPath)Newtonsoft.Json.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <!-- The plugin's pure logic, compiled in from src (everything that doesn't need the game). -->
+  <ItemGroup>
+    <Compile Include="..\..\src\PuppetMasterKK\Config\Configuration.cs" Link="Linked\Configuration.cs" />
+    <Compile Include="..\..\src\PuppetMasterKK\Config\ConfigurationMigrator.cs" Link="Linked\ConfigurationMigrator.cs" />
+    <Compile Include="..\..\src\PuppetMasterKK\Chat\ReactionExecutionGate.cs" Link="Linked\ReactionExecutionGate.cs" />
+    <Compile Include="..\..\src\PuppetMasterKK\Chat\ReactionCommandMatcher.cs" Link="Linked\ReactionCommandMatcher.cs" />
+    <Compile Include="..\..\src\PuppetMasterKK\UI\PluginUiLogic.cs" Link="Linked\PluginUiLogic.cs" />
+    <Compile Include="..\..\src\PuppetMasterKK\Diagnostics\DebugLogBuffer.cs" Link="Linked\DebugLogBuffer.cs" />
+    <Compile Include="..\..\src\PuppetMasterKK\Chat\BoundedRetriggerQueue.cs" Link="Linked\BoundedRetriggerQueue.cs" />
+    <Compile Include="..\..\src\PuppetMasterKK\Chat\BoundedRetriggerScheduler.cs" Link="Linked\BoundedRetriggerScheduler.cs" />
+    <Compile Include="..\..\src\PuppetMasterKK\Diagnostics\ReactionVisualizerState.cs" Link="Linked\ReactionVisualizerState.cs" />
+    <Compile Include="..\..\src\PuppetMasterKK\Config\ConfigurationUpgradeTransaction.cs" Link="Linked\ConfigurationUpgradeTransaction.cs" />
+    <Compile Include="..\..\src\PuppetMasterKK\Chat\CommandPolicy.cs" Link="Linked\CommandPolicy.cs" />
+    <Compile Include="..\..\src\PuppetMasterKK\Chat\SenderFilter.cs" Link="Linked\SenderFilter.cs" />
+    <None Include="TestConfigs\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

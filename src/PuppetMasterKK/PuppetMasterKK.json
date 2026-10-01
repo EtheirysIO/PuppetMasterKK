@@ -1,0 +1,13 @@
+{
+  "Author": "phys1ks, from DodingDaga's Puppet Master",
+  "Name": "PuppetMasterKK",
+  "Punchline": "Let others tell you what to do.",
+  "Description": "Trusted chat messages make your character emote or run commands you allow, and emotes aimed at you get answered in kind. Choose who can trigger each reaction, which channels it listens to, and which commands it may run.",
+  "InternalName": "PuppetMasterKK",
+  "ApplicableVersion": "any",
+  "Tags": [
+    "plugin",
+    "emote",
+    "chat"
+  ]
+}
