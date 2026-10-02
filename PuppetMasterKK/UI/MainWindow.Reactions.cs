@@ -190,7 +190,8 @@ internal sealed partial class MainWindow
         }
         ImGui.SameLine(0f, gap * 2f);
         if (W.IconButton(FontAwesomeIcon.ShareAlt, "##share",
-                         "Copy a share code for this trigger. Who can trigger it, its notifications and custom channels aren't included."))
+                         "Copy a share code for this trigger. Its name, phrase and commands are included as written. " +
+                         "Who can trigger it, its notifications and custom channels aren't."))
             CopyShareCode(reaction);
         ImGui.SameLine(0f, gap);
         if (W.IconButton(FontAwesomeIcon.Copy, "##duplicate", "Duplicate this trigger"))

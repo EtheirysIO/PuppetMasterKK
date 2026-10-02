@@ -19,6 +19,10 @@ internal static class MimicMode
     private static long lastAt;
     // Bumped on every start and stop: copies still waiting out the delay are dropped.
     private static int generation;
+    // Bumped on every copy: only the last copy's re-follow goes out.
+    private static int copies;
+    // An emote ends /follow: after copying one, follow the leader again this much later (once the emote is out).
+    private static readonly TimeSpan RefollowAfter = TimeSpan.FromSeconds(1);
 
     public static PlayerName? Leader { get; private set; }
 
@@ -107,6 +111,17 @@ internal static class MimicMode
                 Service.TargetManager.Target = Service.ObjectTable.SearchById(targetId);
 
             GameChat.Send(CommandPolicy.EmoteLine(command, settings.MotionOnly));
+
+            if (settings.FollowLeader)
+            {
+                var expected = generation;
+                var copy = ++copies;
+                _ = Service.Framework.RunOnTick(() =>
+                {
+                    if (expected == generation && copy == copies)
+                        FollowMode.FollowMimicLeaderAgain(leaderId);
+                }, RefollowAfter);
+            }
         }
         catch (Exception ex)
         {

@@ -1807,7 +1807,7 @@ static void RunCommandPolicyBypassTests()
         "look-alikes of /follow belong to Follow mode only");
     Assert(catalog.Classify("/follow\u200Bme") == CommandKind.FollowOnly && catalog.Classify("/logout\u200Bnow") == CommandKind.Blocked,
         "an invisible character right after the name is caught too, in case the game ends the name there");
-    Assert(catalog.Classify("\uFF0F\uFF44\uFF41\uFF4E\uFF43\uFF45") == CommandKind.Unknown,
+    Assert(catalog.Classify("\uFF0F\uFF44\uFF41\uFF4E\uFF43\uFF45") == CommandKind.LookAlike,
         "a look-alike is never allowed as the real command (a full-width /dance is not an emote)");
     Assert(!Runs(catalog, "\uFF0Ffollow", [], noProtections: true),
         "a full-width /follow should stay blocked even with protections off");
@@ -2329,12 +2329,13 @@ static void RunShareCodeTests()
            code.All(c => char.IsAsciiLetterOrDigit(c) || c is '.' or '-' or '_'),
         "a share code is the prefix plus base64url (no padding, no + or /)");
     var json = ShareJson(code);
-    foreach (var secret in new[] { "Nova", "Test Player", "Named", "Senders", "Anyone", "Enabled\"", "Notifications", "9999", "NoProtections", "$type" })
+    foreach (var secret in new[] { "Nova", "Test Player", "Named", "Senders", "Anyone", "Enabled\"", "Notifications", "9999", "NoProtections", "$type",
+                                   "TestInput", "dance wave" })
         Assert(!json.Contains(secret, StringComparison.Ordinal), $"a share code must not carry {secret}");
 
     Assert(ShareCodeCodec.TryDecode(code, 1000, out var share, out _), "an exported code should import");
     Assert(share.V == 1 && share.Name == "Dance party" && share.UseRegex && share.CustomPhrase == source.CustomPhrase &&
-           share.ReplaceMatch == source.ReplaceMatch && share.TestInput == "dance wave" && !share.MotionOnly &&
+           share.ReplaceMatch == source.ReplaceMatch && !share.MotionOnly &&
            share.CooldownSeconds == 7 && share.ExecutionPolicy == ReactionExecutionPolicy.QueueLatestTrigger &&
            share.AllowAllCommands && share.Allowed!.SequenceEqual(["/shout", "/ac"]) && share.Blocked!.SequenceEqual(["/sit"]) &&
            !share.Protections!.Chat && share.Protections.OpenRisky!.SequenceEqual(["teleport"]) &&
@@ -2406,7 +2407,10 @@ static void RunShareCodeTests()
     AssertRefused(Field("TriggerPhrase", Quoted(1001)), "a phrase over the user's limit should be refused");
     Assert(ShareCodeCodec.TryDecode(Field("CustomPhrase", Quoted(1001)), 2000, out _, out _), "the pattern limit is the user's own");
     AssertRefused(Field("ReplaceMatch", Quoted(501)), "long commands should be refused");
-    AssertRefused(Field("TestInput", Quoted(501)), "a long test message should be refused");
+    Assert(ShareCodeCodec.TryDecode(Field("TestInput", Quoted(501)), 1000, out _, out _) &&
+           ShareCodeCodec.TryDecode(PackJson("{\"v\":1,\"Name\":\"Old\",\"TestInput\":\"dance wave\"}"), 1000, out var old, out _) &&
+           old.Name == "Old",
+        "an older code with a Try it message still imports; the message is ignored");
     AssertRefused(Field("Allowed", Many(65, "\"/wave\"")), "more than 64 allowed commands should be refused");
     AssertRefused(Field("Blocked", Many(65, "\"/wave\"")), "more than 64 blocked commands should be refused");
     AssertRefused(Field("Allowed", "[" + Quoted(101) + "]"), "a long allowed entry should be refused");
@@ -2427,7 +2431,8 @@ static void RunShareCodeTests()
 static void RunShareCodeReviewTests()
 {
     var catalog = new CommandCatalog(
-        [["/shout", "/sh"], ["/say", "/s"], ["/teleport", "/tp"], ["/action", "/ac"], ["/sit"], ["/groundsit"], ["/lounge"]],
+        [["/shout", "/sh"], ["/say", "/s"], ["/tell", "/t"], ["/teleport", "/tp"], ["/action", "/ac"], ["/sit"], ["/groundsit"], ["/lounge"],
+         ["/logout"]],
         [["/dance"], ["/wave"]]);
     bool Plugin(string command) => command == "/hello";
     bool BuiltIn(int id) => id < 200;
@@ -2456,8 +2461,10 @@ static void RunShareCodeReviewTests()
     Assert(Has(ImportRiskKind.AllowedCommand, "/shout") && Has(ImportRiskKind.AllowedCommand, "/tp") &&
            Has(ImportRiskKind.AllowedCommand, "/hello") && Has(ImportRiskKind.AllowedCommand, "/nonsense"),
         "chat, risky, plugin and unknown allowed commands should each need an OK");
-    Assert(!review.Risks.Exists(risk => risk.Key is "/ac" or "/dance" or "/SH"),
-        "game commands and emotes don't need an OK, and another spelling of a listed command isn't listed twice");
+    Assert(Has(ImportRiskKind.AllowedCommand, "/ac") && !review.Risks.Exists(risk => risk.Key is "/dance" or "/SH"),
+        "a game command the defaults don't allow needs an OK; emotes don't, and another spelling isn't listed twice");
+    Assert(review.Allowed.SequenceEqual(["/shout", "/tp", "/hello", "/nonsense", "/wait", "/ac", "/dance"]),
+        "the summary lists the code's Allowed entries, once each");
     Assert(Has(ImportRiskKind.SenderWait, "/wait"), "/wait from the sender should need an OK");
     Assert(Has(ImportRiskKind.ChatUnprotected) && Has(ImportRiskKind.ChatOpen, "say") && !Has(ImportRiskKind.ChatOpen, "bogus"),
         "turning chat protection off, and each opened chat group, should need an OK (unknown keys open nothing)");
@@ -2478,8 +2485,8 @@ static void RunShareCodeReviewTests()
         "an imported trigger is off, for the default senders (never Anyone, never named players)");
     Assert(!stripped.NoProtections && stripped.ProgressNotifications == ReactionNotificationSetting.Inherit,
         "an imported trigger has protections and default notifications");
-    Assert(!stripped.AllowAllCommands && stripped.CommandWhitelist.SequenceEqual(["/ac", "/dance"]),
-        "unticked: only game commands and emotes stay allowed");
+    Assert(!stripped.AllowAllCommands && stripped.CommandWhitelist.SequenceEqual(["/dance"]),
+        "unticked: only emotes stay allowed");
     Assert(stripped.CommandBlacklist.SequenceEqual(["/sit", "/groundsit", "/lounge"]), "unticked: the default blocks come back");
     Assert(stripped.Protections is { Chat: true, Risky: true, Plugins: true } && stripped.Protections.OpenChat.Count == 0 &&
            stripped.Protections.OpenRisky.Count == 0 && stripped.Protections.OpenPlugins.Count == 0,
@@ -2501,13 +2508,13 @@ static void RunShareCodeReviewTests()
             reaction.Protections.IsOpen(kind, group));
     }
     Assert(!Runs(stripped, "/sh") && !Runs(stripped, "/s") && !Runs(stripped, "/tp") && !Runs(stripped, "/hello") &&
-           !Runs(stripped, "/nonsense") && !Runs(stripped, "/sit") && Runs(stripped, "/ac") && Runs(stripped, "/wave"),
+           !Runs(stripped, "/nonsense") && !Runs(stripped, "/sit") && !Runs(stripped, "/ac") && Runs(stripped, "/wave"),
         "unticked, the imported trigger can't shout, say, teleport, use plugins or sit");
 
     foreach (var risk in review.Risks)
         risk.Accepted = risk.Kind == ImportRiskKind.AllowedCommand && risk.Key == "/tp";
     var oneTicked = review.Build();
-    Assert(oneTicked.CommandWhitelist.SequenceEqual(["/tp", "/ac", "/dance"]) && Runs(oneTicked, "/tp") && !Runs(oneTicked, "/sh"),
+    Assert(oneTicked.CommandWhitelist.SequenceEqual(["/tp", "/dance"]) && Runs(oneTicked, "/tp") && !Runs(oneTicked, "/sh"),
         "ticking one command lets only that one through");
 
     foreach (var risk in review.Risks)
@@ -2525,6 +2532,67 @@ static void RunShareCodeReviewTests()
     // Another spelling of an unticked command can't slip in.
     var aliases = new ShareCodeReview(Decode("""{"v":1,"Allowed":["/shout"," /SH ","/ｓｈｏｕｔ","/s"]}"""), configuration, catalog, Plugin, BuiltIn);
     Assert(aliases.Build().CommandWhitelist.Count == 0, "no spelling of an unticked command stays allowed");
+    Assert(aliases.LookAlikes.SequenceEqual(["/\uFF53\uFF48\uFF4F\uFF55\uFF54 looks like /shout"]) && aliases.Allowed.SequenceEqual(["/shout", "/s"]),
+        "a full-width spelling is flagged as a look-alike, not offered");
+
+    // Look-alikes are never offered, whatever is ticked, and never run from an Allowed entry or an open group.
+    var masked = new ShareCodeReview(Decode("{\"v\":1,\"Allowed\":[\"/\uFF54ell\",\"/\u200Btell\",\"/tell\u200B\",\"/\u202Ewave\",\"/wave\"]}"),
+        configuration, catalog, Plugin, BuiltIn);
+    Assert(masked.LookAlikes.SequenceEqual(["/\uFF54ell looks like /tell", "/?tell looks like /tell", "/tell? looks like /tell", "/?wave looks like /wave"]) &&
+           !masked.Risks.Exists(risk => risk.Kind == ImportRiskKind.AllowedCommand) && masked.Allowed.SequenceEqual(["/wave"]),
+        "look-alike entries are flagged with what they look like and not offered");
+    foreach (var risk in masked.Risks)
+        risk.Accepted = true;
+    Assert(masked.Build().CommandWhitelist.SequenceEqual(["/wave"]), "look-alike entries are left out even with everything ticked");
+    var open = new ProtectionSettings { Chat = false, Risky = false, Plugins = false };
+    foreach (var line in new[] { "/\uFF54ell", "/\u200Btell", "/tell\u200B", "/\u202Etell", "/\uFF53ay" })
+    {
+        var kind = catalog.Classify(line, _ => true);
+        Assert(kind == CommandKind.LookAlike && !CommandPolicy.IsAllowed(catalog.Canonicalize(line), kind,
+                   catalog.CanonicalSet([line, "/tell", "/say"]), catalog.CanonicalSet([]), true, out _, open: open.IsOpen(kind, "say")),
+            $"the look-alike \"{line}\" never runs from an Allowed entry or with its protection off");
+        Assert(CommandPolicy.IsAllowed(catalog.Canonicalize(line), kind, catalog.CanonicalSet([]), catalog.CanonicalSet([]), false, out _,
+                   noProtections: true),
+            "only a trigger with no protections runs a look-alike");
+    }
+    Assert(catalog.Classify("/\uFF46ollow") == CommandKind.FollowOnly && catalog.Classify("/\uFF4Cogout") == CommandKind.Blocked &&
+           !CommandPolicy.IsAllowed("/\uFF46ollow", CommandKind.FollowOnly, catalog.CanonicalSet([]), catalog.CanonicalSet([]), true, out _, noProtections: true),
+        "look-alikes of /follow and blocked commands stay those kinds (/follow blocked even without protections)");
+    Assert(catalog.Classify("/tell") != CommandKind.LookAlike && catalog.Classify("/dance") == CommandKind.Emote &&
+           catalog.LookAlikeOf("/tell") == null && catalog.LookAlikeOf("/\uFF54ell") == "/tell",
+        "plainly written commands are not look-alikes");
+
+    // A plain game command needs an OK only when the defaults don't allow any game command.
+    var gameOnly = Decode("{\"v\":1,\"Allowed\":[\"/ac\",\"/dance\",\"/logout\"]}");
+    Assert(new ShareCodeReview(gameOnly, configuration, catalog, Plugin, BuiltIn).Risks.Count(r => r.Kind == ImportRiskKind.AllowedCommand) == 1 &&
+           new ShareCodeReview(gameOnly, new Configuration { DefaultAllowAllCommands = true }, catalog, Plugin, BuiltIn).Risks
+               .Count(r => r.Kind == ImportRiskKind.AllowedCommand) == 0,
+        "a game command needs an OK unless any game command is allowed by default; emotes and blocked commands never do");
+
+    // Emote text and Queue every: the user's defaults unless ticked.
+    var settings = new ShareCodeReview(Decode("{\"v\":1,\"MotionOnly\":false,\"ExecutionPolicy\":0}"), configuration, catalog, Plugin, BuiltIn);
+    Assert(settings.Risks.Exists(r => r.Kind == ImportRiskKind.EmoteText) && settings.Risks.Exists(r => r.Kind == ImportRiskKind.QueueEvery),
+        "showing emote text and queueing every trigger need an OK");
+    var settingsBuilt = settings.Build();
+    Assert(settingsBuilt.MotionOnly && settingsBuilt.ExecutionPolicy == ReactionExecutionPolicy.IgnoreWhileRunning,
+        "unticked: emotes stay motion only and repeats use the default");
+    foreach (var risk in settings.Risks)
+        risk.Accepted = true;
+    settingsBuilt = settings.Build();
+    Assert(!settingsBuilt.MotionOnly && settingsBuilt.ExecutionPolicy == ReactionExecutionPolicy.QueueEveryTrigger,
+        "ticked: the code's settings come through");
+    var textByDefault = new ShareCodeReview(Decode("{\"v\":1,\"MotionOnly\":false,\"ExecutionPolicy\":2}"),
+        new Configuration { DefaultMotionOnly = false }, catalog, Plugin, BuiltIn);
+    Assert(textByDefault.Risks.TrueForAll(r => r.Kind is not (ImportRiskKind.EmoteText or ImportRiskKind.QueueEvery)) &&
+           !textByDefault.Build().MotionOnly && textByDefault.Build().ExecutionPolicy == ReactionExecutionPolicy.QueueLatestTrigger,
+        "what the defaults already do, or another repeat setting, needs no OK");
+
+    // Invisible and direction-changing characters are taken out of what's shown.
+    var hidden = new ShareCodeReview(Decode("{\"v\":1,\"Name\":\"Wave\u202E\u200Bparty\u2066\",\"Choices\":[{\"Word\":\"jo\u200By\",\"Commands\":\"/joy\"}]," +
+                                            "\"Protections\":{\"OpenPlugins\":[\"Life\u202Estream\"]}}"), configuration, catalog, Plugin, BuiltIn);
+    Assert(hidden.Name == "Waveparty" && hidden.Build().Choices[0].Word == "joy" &&
+           hidden.Risks.Exists(r => r.Kind == ImportRiskKind.PluginOpen && r.Label == "Unprotect Lifestream"),
+        "format characters are stripped from names, choice words and labels");
 
     // What the user's own defaults already allow isn't asked about, and is kept.
     var trusting = new Configuration
@@ -2561,6 +2629,9 @@ static void RunShareCodeReviewTests()
     var broken = new Reaction { CommandWhitelist = null!, CooldownSeconds = -1 };
     Assert(ConfigurationMigrator.NormalizeReaction(broken) && broken.CommandWhitelist.Count == 0 && broken.CooldownSeconds == 0,
         "NormalizeReaction repairs one trigger");
+
+    Assert(PluginUiLogic.NoId("a###b") == "a# # #b" && PluginUiLogic.NoId("####") == "# # # #" && !PluginUiLogic.NoId("x##y###z####").Contains("##"),
+        "no label from a code keeps a \"##\" that would hide the rest of it");
 
     Console.WriteLine("PASS share code review");
 }

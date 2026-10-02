@@ -10,7 +10,7 @@ namespace PuppetMasterKK;
 
 /// <summary>
 /// What a share code carries: a trigger's own rules, never who may trigger it (no player names), its notifications,
-/// whether it's on, custom channels or its turn group (a name for the sharer's own triggers: it means nothing to
+/// its Try it message (older codes that have one are read and it's ignored), whether it's on, custom channels or its turn group (a name for the sharer's own triggers: it means nothing to
 /// whoever imports it, and joining one of theirs by chance would hold their triggers up). Its own type, so nothing
 /// added to <see cref="Reaction"/> is ever shared by accident.
 /// </summary>
@@ -23,7 +23,6 @@ public sealed class TriggerShare
     public string? TriggerPhrase { get; set; }
     public string? CustomPhrase { get; set; }
     public string? ReplaceMatch { get; set; }
-    public string? TestInput { get; set; }
     public bool MotionOnly { get; set; } = true;
     public int CooldownSeconds { get; set; }
     public ReactionExecutionPolicy ExecutionPolicy { get; set; } = ReactionExecutionPolicy.IgnoreWhileRunning;
@@ -137,7 +136,6 @@ internal static class ShareCodeCodec
             TriggerPhrase = reaction.TriggerPhrase ?? string.Empty,
             CustomPhrase = reaction.CustomPhrase ?? string.Empty,
             ReplaceMatch = reaction.ReplaceMatch ?? string.Empty,
-            TestInput = reaction.TestInput ?? string.Empty,
             MotionOnly = reaction.MotionOnly,
             CooldownSeconds = reaction.CooldownSeconds,
             ExecutionPolicy = reaction.ExecutionPolicy,
@@ -240,7 +238,6 @@ internal static class ShareCodeCodec
         if (Over(share.TriggerPhrase, maxPatternLength) || Over(share.CustomPhrase, maxPatternLength))
             return "Its phrase or pattern is longer than your limit (Settings).";
         if (Over(share.ReplaceMatch, MaxCommandsLength)) return "Its commands are too long.";
-        if (Over(share.TestInput, MaxCommandsLength)) return "Its test message is too long.";
         if (TooMany(share.Allowed) || TooMany(share.Blocked)) return "Its Allowed or Blocked list is too long.";
         if (share.Protections is { } protections &&
             (TooMany(protections.OpenChat) || TooMany(protections.OpenRisky) || TooMany(protections.OpenPlugins)))

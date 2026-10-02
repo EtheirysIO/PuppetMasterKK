@@ -67,6 +67,16 @@ internal sealed partial class MainWindow
 
         using (W.Card("mimicCopying", "Copying"))
         {
+            var followLeader = settings.FollowLeader;
+            if (W.Toggle("Follow them too##mimicFollow", ref followLeader))
+            {
+                settings.FollowLeader = followLeader;
+                Changed();
+            }
+            Hint("Targets and follows the player you mimic, walking there first with vnavmesh when Follow mode's walking " +
+                 "is on, and follows them again after each copied emote (an emote stops following). Works even with " +
+                 "Follow mode off. The stop word ends both.");
+            Gap();
             var motionOnly = settings.MotionOnly;
             if (HideEmoteTextToggle("mimicMotionOnly", ref motionOnly))
             {

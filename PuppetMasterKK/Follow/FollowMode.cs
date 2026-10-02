@@ -31,6 +31,12 @@ internal static class FollowMode
 
     // Who we were last told to follow (shown in the sidebar until a stop).
     public static string? Following { get; private set; }
+    // The current follow was started by Mimic ("Follow them too"), so it lasts while mimicking even with Follow mode off.
+    private static bool followingForMimic;
+
+    // Whether a follow (or a walk) under way may carry on.
+    public static bool MayKeepFollowing =>
+        Service.configuration?.Follow?.Enabled == true || (followingForMimic && MimicMode.IsActive);
 
     public static void ClearFollowing() => Following = null;
 
@@ -47,6 +53,7 @@ internal static class FollowMode
         nextAnyReply = 0;
         nextStopStep = 0;
         Following = null;
+        followingForMimic = false;
     }
 
     // True when the line was a follow or mimic request one of the modes took (the triggers then leave it alone).
@@ -70,9 +77,9 @@ internal static class FollowMode
             return false;
 
         if (request.Kind == FollowRequestKind.Stop)
-            MimicMode.Stop();
+            StopMimic();
         else
-            Mimic(who, request.Target, settings);
+            Mimic(who, request.Target, settings, configuration.Follow);
         return true;
     }
 
@@ -129,28 +136,37 @@ internal static class FollowMode
             Service.PluginLog.Information("Not following {Target}: blocked by the follow lists.", target.Name.Name);
             return;
         }
+        if (!StartFollowing(target, local, settings.WalkWithVnavmesh, forMimic: false))
+            ReplyNotNearby(who, shownName, settings.ReplyWhenNotNearby, settings.NotNearbyMessage);
+    }
 
+    // Walks to the player first when they're far (and vnavmesh can), otherwise targets and follows them. False when
+    // they're in the zone but too far to see, with no way to walk there.
+    private static bool StartFollowing(Candidate target, IPlayerCharacter local, bool walk, bool forMimic)
+    {
         // A new request replaces any walk in progress.
         FollowNavigator.Cancel();
-        if (settings.WalkWithVnavmesh && Vector3.Distance(local.Position, target.Position) > WalkFrom &&
+        followingForMimic = forMimic;
+        if (walk && Vector3.Distance(local.Position, target.Position) > WalkFrom &&
             FollowNavigator.IsAvailable() && FollowNavigator.Start(target.Name, target.Position))
         {
             Following = target.Name.Name;
-            return;
+            return true;
         }
         if (target.Character == null)
-        {
-            // In the zone (a party member) but too far to see, and no way to walk there.
-            ReplyNotNearby(who, shownName, settings.ReplyWhenNotNearby, settings.NotNearbyMessage);
-            return;
-        }
+            return false;
         TargetAndFollow(target.Character, target.Name.Name);
+        return true;
     }
 
     // "Ami mimic me" / "Ami mimic Nova": from now on, copy that player's emotes.
-    private static void Mimic(SenderInfo who, string targetText, MimicSettings settings)
+    private static void Mimic(SenderInfo who, string targetText, MimicSettings settings, FollowSettings follow)
     {
+        var local = Service.ObjectTable.LocalPlayer;
+        if (local == null)
+            return;
         PlayerName leader;
+        Candidate? leaderCandidate = null;
         if (targetText.Length == 0)
         {
             leader = new PlayerName(who.Name, who.World);
@@ -158,15 +174,13 @@ internal static class FollowMode
         else
         {
             // A named player has to be around (their emotes are only seen nearby anyway).
-            var local = Service.ObjectTable.LocalPlayer;
-            if (local == null)
-                return;
             if (FindCandidate(FollowParser.SplitName(targetText), local, out var ambiguous) is not { } found)
             {
                 NotFound(who, targetText, ambiguous, settings.ReplyWhenNotNearby, settings.NotNearbyMessage);
                 return;
             }
             leader = found.Name;
+            leaderCandidate = found;
         }
         // Without a world, anyone with that name on any world would lead.
         if (leader.Name.Length == 0 || leader.World.Length == 0)
@@ -180,6 +194,49 @@ internal static class FollowMode
             return;
         }
         MimicMode.Start(leader);
+
+        if (!settings.FollowLeader)
+            return;
+        if (Service.Condition[ConditionFlag.InCombat])
+        {
+            Service.PluginLog.Information("Mimicking {Leader} without following: in combat.", leader.Name);
+            return;
+        }
+        if ((leaderCandidate ?? FindCandidate(leader, local, out _)) is { } target &&
+            !StartFollowing(target, local, follow.WalkWithVnavmesh, forMimic: true))
+            Service.PluginLog.Information("Mimicking {Leader} without following: too far to see.", leader.Name);
+    }
+
+    // After a copied emote (which ends /follow): target the leader and follow them again. Not while a walk to them is
+    // still going (it follows on arrival), in combat, or once mimicking has stopped.
+    public static void FollowMimicLeaderAgain(ulong leaderId)
+    {
+        try
+        {
+            if (!MimicMode.IsActive || Service.configuration?.Mimic?.FollowLeader != true || FollowNavigator.IsWalking ||
+                Service.Condition[ConditionFlag.InCombat] ||
+                Service.ObjectTable.SearchById(leaderId) is not IPlayerCharacter leader)
+                return;
+            followingForMimic = true;
+            TargetAndFollow(leader, leader.Name.TextValue);
+        }
+        catch (Exception ex)
+        {
+            Service.PluginLog.Warning(ex, "Couldn't follow the mimicked player again.");
+        }
+    }
+
+    // Mimic's stop word: stop copying, and stop following if Mimic started it.
+    private static void StopMimic()
+    {
+        MimicMode.Stop();
+        if (!followingForMimic)
+            return;
+        FollowNavigator.Cancel();
+        followGeneration++;
+        Following = null;
+        followingForMimic = false;
+        TakeStopStep();
     }
 
     private readonly record struct Candidate(PlayerName Name, IPlayerCharacter? Character, Vector3 Position);
@@ -280,7 +337,7 @@ internal static class FollowMode
     {
         try
         {
-            if (expected != followGeneration || Service.configuration?.Follow?.Enabled != true)
+            if (expected != followGeneration || !MayKeepFollowing)
                 return;
             if (Service.TargetManager.Target?.GameObjectId != targetId)
             {
@@ -314,6 +371,16 @@ internal static class FollowMode
         TrySend($"/tell {key} {reply}", "the not-nearby reply");
     }
 
+    // One tiny automove step: moving ends /follow, emote loops, sitting and lying down.
+    private static void TakeStopStep()
+    {
+        if (TrySend("/automove on", "the stop step"))
+        {
+            stopStepPending = true;
+            _ = Service.Framework.RunOnTick(StopMoving, TimeSpan.FromMilliseconds(150));
+        }
+    }
+
     private static void Stop(Configuration configuration, FollowSettings settings)
     {
         ChatHandler.CancelAll(configuration);
@@ -321,6 +388,7 @@ internal static class FollowMode
         MimicMode.Stop();
         followGeneration++;
         Following = null;
+        followingForMimic = false;
 
         // Stop isn't held back by the shared rate limit (it's how you get your character back), but a flood of stops
         // sends the step and the stop commands only once in a while.
@@ -328,11 +396,8 @@ internal static class FollowMode
         if (now < nextStopStep)
             return;
         nextStopStep = now + StopCooldown;
-        if (settings.StopMoves && TrySend("/automove on", "the stop step"))
-        {
-            stopStepPending = true;
-            _ = Service.Framework.RunOnTick(StopMoving, TimeSpan.FromMilliseconds(150));
-        }
+        if (settings.StopMoves)
+            TakeStopStep();
         foreach (var command in settings.StopCommands)
         {
             if (string.IsNullOrWhiteSpace(command))

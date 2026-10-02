@@ -213,6 +213,8 @@ namespace PuppetMasterKK
         public float RepeatGuardSeconds { get; set; } = 3f;
         public bool ReplyWhenNotNearby { get; set; } = true;
         public string NotNearbyMessage { get; set; } = "Sorry, I don't see <target> near me.";
+        // Also /follow the player being mimicked (walking there first with vnavmesh when Follow mode allows it).
+        public bool FollowLeader { get; set; } = true;
 
         public const float MaxDelaySeconds = 10f;
         public const float MaxRepeatGuardSeconds = 30f;

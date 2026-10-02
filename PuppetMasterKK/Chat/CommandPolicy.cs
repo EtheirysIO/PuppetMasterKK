@@ -21,6 +21,9 @@ internal enum CommandKind
     // Never runs while the trigger has protections (logout, shutdown, PuppetMasterKK's and Dalamud's own commands),
     // whatever its Allowed list says. Only "no protections" lets these through.
     Blocked,
+    // Written with look-alike characters (full-width letters, invisible characters) the game might fold into another
+    // command. Never allowed by an Allowed entry or a protection switch: only "no protections" runs it.
+    LookAlike,
 }
 
 // Every form the game accepts for a text command (command, short form, aliases) mapped to one canonical name, plus
@@ -138,6 +141,9 @@ internal sealed class CommandCatalog
             return CommandKind.FollowOnly;
         if (IsBlockedName(literal) || IsBlockedName(unmasked) || IsBlockedName(cut))
             return CommandKind.Blocked;
+        // A name the game itself lists is what it says; anything else written with look-alikes is never allowed.
+        if (!canonical.ContainsKey(literal) && IsMasked(literal, unmasked, cut))
+            return CommandKind.LookAlike;
         if (emotes.Contains(main))
             return CommandKind.Emote;
         if (chat.Contains(main))
@@ -149,6 +155,30 @@ internal sealed class CommandCatalog
         if (isPluginCommand != null && isPluginCommand(literal))
             return CommandKind.Plugin;
         return CommandKind.Unknown;
+    }
+
+    /// <summary>The command a look-alike name could be read as ("/ｔell" -> "/tell"), or null when it's written plainly.</summary>
+    public string? LookAlikeOf(string command)
+    {
+        var literal = Normalize(command);
+        var unmasked = Unmask(literal, cutAtInvisible: false);
+        var cut = Unmask(literal, cutAtInvisible: true);
+        return !canonical.ContainsKey(literal) && IsMasked(literal, unmasked, cut) ? unmasked : null;
+    }
+
+    // Either way the game might read the name differs from how it's written.
+    private static bool IsMasked(string literal, string unmasked, string cut)
+    {
+        var name = literal;
+        for (var i = 0; i < literal.Length; i++)
+        {
+            if (char.IsWhiteSpace(literal[i]))
+            {
+                name = literal[..i];
+                break;
+            }
+        }
+        return !string.Equals(unmasked, name, StringComparison.Ordinal) || !string.Equals(cut, name, StringComparison.Ordinal);
     }
 
     private bool IsFollow(string name) => name == FollowCommand || Canonicalize(name) == follow;
@@ -247,6 +277,11 @@ internal static class CommandPolicy
         if (kind == CommandKind.Blocked || IsAlwaysBlocked(canonicalCommand))
         {
             reason = "always blocked";
+            return false;
+        }
+        if (kind == CommandKind.LookAlike)
+        {
+            reason = "it looks like another command (look-alike characters)";
             return false;
         }
         if (whitelist.Contains(canonicalCommand))

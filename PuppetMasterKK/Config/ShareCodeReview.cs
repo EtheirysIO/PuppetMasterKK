@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
 
 namespace PuppetMasterKK;
 
@@ -15,6 +17,8 @@ internal enum ImportRiskKind
     PluginsUnprotected,
     PluginOpen,
     Unblocked,
+    EmoteText,
+    QueueEvery,
 }
 
 /// <summary>One thing a shared trigger would let through that the user's new triggers don't. Left out unless ticked.</summary>
@@ -25,7 +29,7 @@ internal sealed class ImportRisk(ImportRiskKind kind, string key, string label, 
     public ImportRiskKind Kind { get; } = kind;
     // The command, protection group key or plugin name.
     public string Key { get; } = key;
-    public string Label { get; } = label;
+    public string Label { get; } = ShareCodeReview.Clean(label);
     public string Detail { get; } = detail;
     public bool Accepted { get; set; }
 }
@@ -51,6 +55,10 @@ internal sealed class ShareCodeReview
 
     public List<ImportRisk> Risks { get; } = [];
     public List<ImportChannel> SuggestedChannels { get; } = [];
+    // The code's Allowed entries as shown in the summary (look-alikes left out).
+    public List<string> Allowed { get; } = [];
+    // Allowed entries written with look-alike characters ("/ｔell" looks like /tell): never offered, always left out.
+    public List<string> LookAlikes { get; } = [];
     public string Name { get; }
 
     /// <param name="isPluginCommand">Whether a command belongs to a loaded plugin (Service.IsPluginCommand).</param>
@@ -61,8 +69,8 @@ internal sealed class ShareCodeReview
         this.share = share;
         this.configuration = configuration;
         this.catalog = catalog;
-        // Line breaks and other control characters don't belong in a name.
-        var name = new string(Array.FindAll((share.Name ?? string.Empty).ToCharArray(), c => !char.IsControl(c))).Trim();
+        // Line breaks, invisible and direction-changing characters don't belong in a name.
+        var name = Clean(share.Name).Trim();
         Name = name.Length == 0 ? "Imported trigger" : name;
 
         if (share.AllowAllCommands && !configuration.DefaultAllowAllCommands)
@@ -77,8 +85,18 @@ internal sealed class ShareCodeReview
             if (string.IsNullOrWhiteSpace(entry))
                 continue;
             var command = entry.Trim();
+            if (catalog.LookAlikeOf(command) is { } real)
+            {
+                var shown = $"{Visible(command)} looks like {Visible(real)}";
+                if (!LookAlikes.Contains(shown))
+                    LookAlikes.Add(shown);
+                continue;
+            }
             var canonical = catalog.Canonicalize(command);
-            if (!seen.Add(canonical) || defaultAllowed.Contains(canonical))
+            if (!seen.Add(canonical))
+                continue;
+            Allowed.Add(command);
+            if (defaultAllowed.Contains(canonical))
                 continue;
             if (canonical == wait || CommandCatalog.Normalize(command) == CommandPolicy.WaitCommand)
             {
@@ -92,11 +110,21 @@ internal sealed class ShareCodeReview
                 CommandKind.Sensitive => "A risky game command (teleporting, party, gear, trading...).",
                 CommandKind.Plugin => "Another plugin's command.",
                 CommandKind.Unknown => "Not a command this game knows, or a plugin that isn't loaded.",
+                CommandKind.Game when !configuration.DefaultAllowAllCommands => "A game command your new triggers don't allow.",
+                // Emotes run anyway; blocked commands and /follow never run.
                 _ => null,
             };
             if (detail != null)
                 Risks.Add(new(ImportRiskKind.AllowedCommand, command, $"Allow {command}", detail, canonical));
         }
+
+        if (!share.MotionOnly && configuration.DefaultMotionOnly)
+            Risks.Add(new(ImportRiskKind.EmoteText, string.Empty, "Emotes show the sender's text",
+                          "Emotes post their chat message, not just the motion."));
+        if (share.ExecutionPolicy == ReactionExecutionPolicy.QueueEveryTrigger &&
+            DefaultPolicy != ReactionExecutionPolicy.QueueEveryTrigger)
+            Risks.Add(new(ImportRiskKind.QueueEvery, string.Empty, "Queue every trigger",
+                          "Each message waits its turn, so a spammer can keep it busy. Otherwise it uses your default."));
 
         var defaults = configuration.DefaultProtections ?? new ProtectionSettings();
         var shared = share.Protections ?? new ShareProtections();
@@ -140,6 +168,35 @@ internal sealed class ShareCodeReview
             SuggestedChannels.Add(new ImportChannel(channel, PluginUiLogic.IsPublicChannel(channel)));
         }
     }
+
+    // What the user's new triggers do while one is already running.
+    private ReactionExecutionPolicy DefaultPolicy => Reaction.FromDefaults(configuration).ExecutionPolicy;
+
+    /// <summary>Text from a code without control, invisible or direction-changing characters.</summary>
+    internal static string Clean(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return string.Empty;
+        var builder = new StringBuilder(text.Length);
+        foreach (var c in text)
+        {
+            if (!IsHidden(c))
+                builder.Append(c);
+        }
+        return builder.ToString();
+    }
+
+    // Hidden characters shown as "?", so a look-alike can be told apart from the real command.
+    private static string Visible(string text)
+    {
+        var builder = new StringBuilder(text.Length);
+        foreach (var c in text)
+            builder.Append(IsHidden(c) ? '?' : c);
+        return builder.ToString();
+    }
+
+    private static bool IsHidden(char c)
+        => char.IsControl(c) || CharUnicodeInfo.GetUnicodeCategory(c) == UnicodeCategory.Format;
 
     private void AddProtectionRisks(bool sharedMaster, List<string>? sharedOpen, bool defaultMaster, List<string>? defaultOpen,
         ProtectionGroup[] groups, ImportRiskKind masterKind, ImportRiskKind openKind, string masterLabel, string masterDetail)
@@ -185,6 +242,8 @@ internal sealed class ShareCodeReview
             if (string.IsNullOrWhiteSpace(entry))
                 continue;
             var command = entry.Trim();
+            if (catalog.LookAlikeOf(command) != null)
+                continue;
             var canonical = catalog.Canonicalize(command);
             var risky = Risks.Find(risk => risk.Kind is ImportRiskKind.AllowedCommand or ImportRiskKind.SenderWait &&
                                            risk.Canonical.Equals(canonical, StringComparison.OrdinalIgnoreCase));
@@ -208,7 +267,7 @@ internal sealed class ShareCodeReview
         foreach (var choice in share.Choices ?? [])
         {
             if (choice != null)
-                choices.Add(new ReactionChoice { Word = choice.Word ?? string.Empty, Commands = choice.Commands ?? string.Empty });
+                choices.Add(new ReactionChoice { Word = Clean(choice.Word), Commands = choice.Commands ?? string.Empty });
         }
 
         var channels = new List<int>(configuration.DefaultEnabledChannels ?? []);
@@ -226,10 +285,13 @@ internal sealed class ShareCodeReview
             TriggerPhrase = string.IsNullOrWhiteSpace(share.TriggerPhrase) ? Reaction.DefaultTriggerPhrase : share.TriggerPhrase,
             CustomPhrase = share.CustomPhrase ?? string.Empty,
             ReplaceMatch = share.ReplaceMatch ?? string.Empty,
-            TestInput = share.TestInput ?? string.Empty,
-            MotionOnly = share.MotionOnly,
+            TestInput = string.Empty,
+            MotionOnly = share.MotionOnly || (configuration.DefaultMotionOnly && !Accepted(ImportRiskKind.EmoteText)),
             CooldownSeconds = share.CooldownSeconds,
-            ExecutionPolicy = share.ExecutionPolicy,
+            ExecutionPolicy = share.ExecutionPolicy == ReactionExecutionPolicy.QueueEveryTrigger &&
+                              DefaultPolicy != ReactionExecutionPolicy.QueueEveryTrigger && !Accepted(ImportRiskKind.QueueEvery)
+                ? DefaultPolicy
+                : share.ExecutionPolicy,
             AllowAllCommands = share.AllowAllCommands && (configuration.DefaultAllowAllCommands || Accepted(ImportRiskKind.AnyGameCommand)),
             CommandWhitelist = allowed,
             CommandBlacklist = blocked,

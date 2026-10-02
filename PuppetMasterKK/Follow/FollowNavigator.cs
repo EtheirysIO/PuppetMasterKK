@@ -215,7 +215,7 @@ internal static class FollowNavigator
                 GiveUp("no character");
                 return;
             }
-            if (Service.configuration?.Follow?.Enabled != true)
+            if (!FollowMode.MayKeepFollowing)
             {
                 GiveUp("Follow mode is off");
                 return;

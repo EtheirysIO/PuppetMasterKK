@@ -45,7 +45,7 @@ PuppetMasterKK watches the chat channels you pick. When someone you trust says t
   - **Risky game commands:** teleporting, party commands, gear sets, trading, the blacklist, search comment, hotbars and UI resets.
   - **Plugin commands:** any installed plugin that has commands. The ones that could cause chaos are listed first: Lifestream, Glamourer, Penumbra, Customize+, Dropbox, vnavmesh and others.
 - **Allowed and Blocked lists** for anything else, with defaults for new triggers.
-- **Never runs:** `/logout`, `/shutdown`, `/follow` (that's Follow mode's job), Dalamud's `/xl` commands and PuppetMasterKK's own commands. Look-alike spellings with full-width letters or hidden characters are caught too.
+- **Never runs:** `/logout`, `/shutdown`, `/follow` (that's Follow mode's job), Dalamud's `/xl` commands and PuppetMasterKK's own commands. Look-alike spellings with full-width letters or hidden characters are caught too, and a look-alike of any command (`/ｔell`) only runs with no protections: listing it or switching a protection off never lets it through.
 - **No protections:** a trigger you trust completely can run anything except `/follow`. Turning it on takes two confirmations.
 - **Safety nets:**
   - Senders can't break a message into extra command lines, post your position, or pause a trigger for longer than you set.
@@ -61,7 +61,7 @@ PuppetMasterKK watches the chat channels you pick. When someone you trust says t
 
 ### Mimic
 
-- `Ami mimic me` and you copy their emotes until `Ami stop`.
+- `Ami mimic me` and you copy their emotes until `Ami stop`, following them around between emotes (walking over with vnavmesh if they're far).
 - If they emote at someone, you emote at the same person. If they emote at you, you emote back at them.
 - Its own call name, channels, who can ask, and Only and Never lists for who you'll mimic.
 - An optional delay before copying, and a repeat guard so two players mimicking each other never loop.

@@ -62,12 +62,13 @@ internal sealed partial class MainWindow
         }
         importError = null;
         importReview = new ShareCodeReview(share, Config, Service.Commands, Service.IsPluginCommand, IsOfficialChannel);
-        importTest = share.TestInput ?? string.Empty;
+        // Never prefilled from the code: a pattern built to stall on its own message would hitch the window.
+        importTest = string.Empty;
+        importPreview = ReactionPreview.Empty;
         importDirty = true;
     }
 
-    // Text from a code shown in a widget label: "##" there would hide the rest of it.
-    private static string NoId(string text) => text.Replace("##", "# #");
+    private static string NoId(string text) => PluginUiLogic.NoId(text);
 
     private void DrawImportDialog()
     {
@@ -105,8 +106,9 @@ internal sealed partial class MainWindow
             ReactionCommandMatcher.CompilePatterns(importCandidate, Config.MaxRegexLength);
         }
         var candidate = importCandidate;
-        // Other plugins' commands can come and go: refreshed every couple of seconds too.
-        if (importDirty || Environment.TickCount64 - importPreviewAt > 2000)
+        // Other plugins' commands can come and go: refreshed every couple of seconds too, but not after the pattern
+        // timed out or failed (that only changes with the message).
+        if (importDirty || (importPreview.Status != PreviewStatus.Error && Environment.TickCount64 - importPreviewAt > 2000))
         {
             importPreview = PluginUiLogic.BuildPreview(candidate, importTest, Service.Commands.IsEmote, Service.IsCommandAllowed,
                                                        0, PreviewRandom(importTest));
@@ -116,7 +118,7 @@ internal sealed partial class MainWindow
 
         if (ImGui.BeginChild("##importScroll", new Vector2(Theme.S(560f), Theme.S(420f)), false))
         {
-            DrawImportSummary(candidate);
+            DrawImportSummary(review, candidate);
             DrawImportTry(candidate);
             DrawImportRisks(review);
             DrawImportChannels(review, candidate);
@@ -138,7 +140,7 @@ internal sealed partial class MainWindow
             Modal.Close(ref importOpen);
     }
 
-    private static void DrawImportSummary(Reaction candidate)
+    private static void DrawImportSummary(ShareCodeReview review, Reaction candidate)
     {
         using (W.Card("importTrigger", NoId(DisplayName(candidate)), candidate.UseRegex ? "Regex pattern" : "Phrase"))
         {
@@ -158,6 +160,19 @@ internal sealed partial class MainWindow
                 Gap(2f);
                 Label("Commands to run");
                 W.TextWrapped(candidate.ReplaceMatch, Theme.Ink);
+            }
+            if (review.Allowed.Count > 0)
+            {
+                Gap(2f);
+                Label("Allowed in the code");
+                W.TextWrapped(string.Join(", ", review.Allowed), Theme.Ink);
+            }
+            if (review.LookAlikes.Count > 0)
+            {
+                Gap(2f);
+                Label("Left out: look-alikes");
+                W.TextWrapped(string.Join(", ", review.LookAlikes) + ". Written to pass as another command, so they're never imported.",
+                              Theme.Negative);
             }
             var final = PluginUiLogic.FinalCommandLines(candidate);
             if (final.Length > 0)

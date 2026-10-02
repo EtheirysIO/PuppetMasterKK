@@ -471,6 +471,14 @@ internal static class PluginUiLogic
         return results;
     }
 
+    /// <summary>Text shown in a widget label: "##" there would hide the rest of it, so no two '#' stay together.</summary>
+    public static string NoId(string text)
+    {
+        while (text.Contains("##", StringComparison.Ordinal))
+            text = text.Replace("##", "# #", StringComparison.Ordinal);
+        return text;
+    }
+
     public static string Capitalize(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
 
     public static string? ValidateCustomChannelId(

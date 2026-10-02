@@ -301,6 +301,7 @@ This also clears waiting requests and stops any walk or mimic. **Cancel** in the
 - `Ami mimic me` copies whoever said it (it has to come from a player whose world the game shows); `Ami mimic Nova Ral'veth@Exodus` (or `Ami mimic Nova`, when only one Nova is nearby) copies that player. `Ami mimic` on its own names nobody, so it's ignored. `Ami stop` stops mimicking (if Follow mode uses the same call name and stop word, its stop stops everything).
 - When they emote at someone, you target the same person and do the same emote; when they emote at you, you emote back at them; when they emote at nobody, you clear your target and emote too. Only emotes are copied, only from a player close enough to see, and not during combat.
 - **Call name**, **Mimic word** and **Stop word** are Mimic's own. **Channels**, **Who can trigger it** and **Never take requests from** decide who can start and stop it. **Who you'll mimic** has **Only mimic** and **Never mimic**, for when you're told to mimic someone else.
+- **Follow them too** (on to start) targets and follows the player you mimic, walking over with vnavmesh first when Follow mode's **Walk to them with vnavmesh** is on. An emote stops following, so after each copied emote you follow them again a second later. It works even with Follow mode off, and the stop word ends both (with one small step, so you really stop following). Not during combat.
 - **Wait before copying** (off to start) copies each emote this long after they do it (0.1 to 10 seconds).
 - **Skip the same emote repeated quickly** (on, 3 seconds) doesn't copy the same emote again for that long after copying it (plus the wait before copying, if that's on), so two players mimicking each other don't loop. Turn it off to copy every repeat.
 - **Hide emote text** is on to start, and **When the player isn't nearby** can reply by tell, as in Follow mode.
@@ -405,17 +406,19 @@ Triggers may share a name. `/pmkk on|off <TriggerName>` affects every trigger wi
 
 ### Share codes
 
-To share a trigger, press the share button next to **Duplicate**. A code starting with `PMKK1.` is copied; paste it anywhere. It carries the trigger's phrase or pattern, commands, choices, final action, repeat and cooldown settings, Allowed and Blocked lists, protections and built-in channels. It never carries who can trigger it (no player names), notifications, custom channels, its turn group or whether it's on. A trigger with no protections is shared with them turned on.
+To share a trigger, press the share button next to **Duplicate**. A code starting with `PMKK1.` is copied; paste it anywhere. It carries the trigger's phrase or pattern, commands, choices, final action, repeat and cooldown settings, Allowed and Blocked lists, protections and built-in channels. It never carries who can trigger it (no player names), notifications, custom channels, its turn group, its **Try it** message or whether it's on. Its name, phrase and commands are included exactly as written. A trigger with no protections is shared with them turned on.
 
-To import one, copy the code, then press the import button next to **New trigger**. The code is read from the clipboard only, never from chat. Before anything is added you see its pattern and commands, a **Try it** box checked against your own rules, and **Needs your OK**: everything it allows that your **Settings → New triggers** don't, each with its own tick:
+To import one, copy the code, then press the import button next to **New trigger**. The code is read from the clipboard only, never from chat. Before anything is added you see its pattern, commands and Allowed list, an empty **Try it** box checked against your own rules, and **Needs your OK**: everything it allows that your **Settings → New triggers** don't, each with its own tick:
 
 - **Any game command**.
-- Each allowed chat, risky, plugin or unknown command.
+- Each allowed chat, risky, plugin or unknown command, and each allowed game command unless your new triggers allow any game command. Emotes, and commands that never run, need no OK.
 - `/wait` in the sender's message.
+- **Emotes show the sender's text** (emotes not set to motion only), when your new triggers use motion only.
+- **Queue every trigger**. Unticked, it uses your new-trigger repeat setting.
 - Each protection it turns off (a whole group, a chat channel, a risky group or a plugin).
 - Each of your default blocks it drops.
 
-Everything starts unticked, and anything left unticked is left out. The trigger is always added turned off, for your new-trigger senders (never **Anyone**), on your new-trigger channels. The channels it used are offered as unticked extras, with public ones marked. A code that asks for no protections, is from a newer version, or is damaged or oversized is refused.
+Everything starts unticked, and anything left unticked is left out. The trigger is always added turned off, for your new-trigger senders (never **Anyone**), on your new-trigger channels. The channels it used are offered as unticked extras, with public ones marked. Allowed entries written with look-alike characters (full-width letters, hidden characters, such as `/ｔell`) are shown as "looks like /tell" and never imported; at run time a look-alike only ever runs on a trigger with no protections. Hidden and direction-changing characters are taken out of the name and choice words. A code that asks for no protections, is from a newer version, or is damaged or oversized is refused.
 
 ## Appearance
 
