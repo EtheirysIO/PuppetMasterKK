@@ -107,7 +107,7 @@ Over time it grew beyond emotes: other text commands, several command lines, cus
 ## Building
 
 ```text
-git clone https://github.com/NCC-Lykos/PuppetMaster
+git clone https://github.com/EtheirysIO/PuppetMasterKK
 dotnet build PuppetMasterKK.sln -c Release
 dotnet run --project PuppetMasterKK.Tests -c Release
 ```
