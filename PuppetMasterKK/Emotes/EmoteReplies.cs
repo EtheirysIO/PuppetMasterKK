@@ -77,6 +77,22 @@ internal sealed class EmoteReplies : IDisposable
         }
     }
 
+    // The emote to answer `command` with: the override's reply (or the same emote), or null when it isn't answered
+    // (an empty override, not an emote, or on the Never reply with list).
+    private static string? ReplyTo(EmoteReplySettings settings, string command)
+    {
+        var reply = EmoteReplySettings.ReplyFor(settings.Overrides, command, Service.Commands.Canonicalize);
+        if (reply.Length == 0 || !reply.StartsWith('/') || !Service.Commands.IsEmote(reply))
+            return null;
+        var canonical = Service.Commands.Canonicalize(reply);
+        foreach (var blockedEmote in settings.BlockedEmotes)
+        {
+            if (!string.IsNullOrWhiteSpace(blockedEmote) && Service.Commands.Canonicalize(blockedEmote) == canonical)
+                return null;
+        }
+        return reply;
+    }
+
     private void Handle(nint instigatorAddress, ushort emoteId, ulong targetId)
     {
         try
@@ -109,9 +125,16 @@ internal sealed class EmoteReplies : IDisposable
             if (command == null)
                 return;
 
-            // The player we're mimicking: copy it (this also covers their emotes aimed at us).
+            // The player we're mimicking: copy it. One aimed at us is answered by our emote reply rules (a different
+            // emote, or none), then sent back at them by Mimic.
             if (MimicMode.IsLeader(sender))
             {
+                if (settings.Enabled && targetId == local.GameObjectId)
+                {
+                    if (ReplyTo(settings, command) is not { } answer)
+                        return;
+                    command = answer;
+                }
                 MimicMode.Copy(instigator, command, targetId);
                 return;
             }
@@ -124,16 +147,9 @@ internal sealed class EmoteReplies : IDisposable
             if (nextReply.IsWaiting(key, now))
                 return;
 
-            // Replaced by another emote, or not answered at all.
-            command = EmoteReplySettings.ReplyFor(settings.Overrides, command, Service.Commands.Canonicalize);
-            if (command.Length == 0 || !command.StartsWith('/') || !Service.Commands.IsEmote(command))
+            if (ReplyTo(settings, command) is not { } replyCommand)
                 return;
-            var canonical = Service.Commands.Canonicalize(command);
-            foreach (var blockedEmote in settings.BlockedEmotes)
-            {
-                if (!string.IsNullOrWhiteSpace(blockedEmote) && Service.Commands.Canonicalize(blockedEmote) == canonical)
-                    return;
-            }
+            command = replyCommand;
 
             if (!CommandRateLimiter.Shared.TryAcquire(now))
                 return;
