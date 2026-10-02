@@ -55,6 +55,7 @@ PuppetMasterKK watches the chat channels you pick. When someone you trust says t
 
 - `Ami follow me`, `Ami follow Nova`, or `Ami follow Nova Ral'veth@Exodus` targets that player and follows them.
 - `Ami come` walks to whoever said it and follows them.
+- You walk when they walk and run when they run (judged by how fast they move), and run to catch up if you fall behind.
 - When they're more than 20 yalms away in the same zone, PuppetMasterKK walks there with vnavmesh first. Party members can be anywhere in the zone. The path's corners are rounded off so the run looks natural, and it stops right beside them.
 - `Ami stop` stops everything: triggers, walking and mimicking. It can also take one step so you stand up, and run your own extra commands.
 - Only and Never lists for who you'll follow; a block list for who can ask; an optional "I don't see them" tell when the player isn't nearby.

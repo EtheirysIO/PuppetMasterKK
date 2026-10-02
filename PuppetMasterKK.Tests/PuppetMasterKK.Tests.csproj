@@ -36,6 +36,7 @@
     <Compile Include="..\PuppetMasterKK\Chat\CommandPolicy.cs" Link="Linked\CommandPolicy.cs" />
     <Compile Include="..\PuppetMasterKK\Chat\Protections.cs" Link="Linked\Protections.cs" />
     <Compile Include="..\PuppetMasterKK\Follow\PathSmoothing.cs" Link="Linked\PathSmoothing.cs" />
+    <Compile Include="..\PuppetMasterKK\Follow\PaceEstimator.cs" Link="Linked\PaceEstimator.cs" />
     <Compile Include="..\PuppetMasterKK\Chat\SenderFilter.cs" Link="Linked\SenderFilter.cs" />
     <Compile Include="..\PuppetMasterKK\Follow\FollowRequest.cs" Link="Linked\FollowRequest.cs" />
     <Compile Include="..\PuppetMasterKK\Chat\ChoiceSelector.cs" Link="Linked\ChoiceSelector.cs" />

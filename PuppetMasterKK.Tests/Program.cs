@@ -1596,6 +1596,29 @@ static void RunRateLimiterTests()
 static void RunFollowTests()
 {
     {
+        // Pace: running ~6 y/s, walking ~2.4 y/s, standing keeps the last pace.
+        var pace = new PaceEstimator();
+        System.Numerics.Vector3 At(float x) => new(x, 0, 0);
+        pace.Add(At(0), 0.0);
+        Assert(pace.Walking == null, "one sample says nothing about pace");
+        pace.Add(At(1.2f), 0.5);
+        Assert(pace.Walking == true, "2.4 yalms a second is walking");
+        pace.Add(At(4.2f), 1.0);
+        Assert(pace.Walking == false, "6 yalms a second is running");
+        pace.Add(At(4.25f), 1.5);
+        Assert(pace.Walking == false, "standing still keeps the last pace");
+        pace.Add(At(100f), 1.6);
+        Assert(pace.Walking == false, "samples closer together than the window are skipped");
+        pace.Add(new System.Numerics.Vector3(4.2f, 50f, 1.2f), 2.1);
+        Assert(pace.Walking == true, "height doesn't count: only ground speed");
+        pace.Add(At(500f), 10.0);
+        Assert(pace.Walking == true, "after a long gap the next sample starts over instead of reading as a sprint");
+        pace.Add(new System.Numerics.Vector3(float.NaN, 0, 0), 10.5);
+        Assert(pace.Walking == true, "a broken position is ignored");
+        pace.Reset();
+        Assert(pace.Walking == null, "reset forgets the pace");
+    }
+    {
         var start = new System.Numerics.Vector3(0, 0, 0);
         var corner = new System.Numerics.Vector3(10, 0, 0);
         var end = new System.Numerics.Vector3(10, 0, 10);

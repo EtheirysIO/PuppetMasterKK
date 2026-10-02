@@ -38,7 +38,18 @@ internal static class FollowMode
     public static bool MayKeepFollowing =>
         Service.configuration?.Follow?.Enabled == true || (followingForMimic && MimicMode.IsActive);
 
-    public static void ClearFollowing() => Following = null;
+    public static void ClearFollowing() => SetFollowing(null);
+
+    // Who we're following now (null: nobody), with pace matching for them.
+    private static void SetFollowing(PlayerName? who)
+    {
+        Following = who?.Name;
+        if (who is { } leader)
+            PaceMatcher.Start(leader, () => MayKeepFollowing &&
+                (followingForMimic ? Service.configuration?.Mimic?.MatchPace : Service.configuration?.Follow?.MatchPace) == true);
+        else
+            PaceMatcher.Stop();
+    }
 
     public static void Reset()
     {
@@ -52,7 +63,7 @@ internal static class FollowMode
         NextReply.Clear();
         nextAnyReply = 0;
         nextStopStep = 0;
-        Following = null;
+        SetFollowing(null);
         followingForMimic = false;
     }
 
@@ -150,7 +161,7 @@ internal static class FollowMode
         if (walk && Vector3.Distance(local.Position, target.Position) > WalkFrom &&
             FollowNavigator.IsAvailable() && FollowNavigator.Start(target.Name, target.Position))
         {
-            Following = target.Name.Name;
+            SetFollowing(target.Name);
             return true;
         }
         if (target.Character == null)
@@ -234,7 +245,7 @@ internal static class FollowMode
             return;
         FollowNavigator.Cancel();
         followGeneration++;
-        Following = null;
+        SetFollowing(null);
         followingForMimic = false;
         TakeStopStep();
     }
@@ -329,11 +340,12 @@ internal static class FollowMode
         // came in between.
         var targetId = character.GameObjectId;
         var expected = followGeneration;
+        var who = new PlayerName(character.Name.TextValue, WorldName(character));
         Service.TargetManager.Target = character;
-        _ = Service.Framework.RunOnTick(() => SendFollow(targetId, name, expected), TimeSpan.FromMilliseconds(150));
+        _ = Service.Framework.RunOnTick(() => SendFollow(targetId, who, expected), TimeSpan.FromMilliseconds(150));
     }
 
-    private static void SendFollow(ulong targetId, string name, int expected)
+    private static void SendFollow(ulong targetId, PlayerName who, int expected)
     {
         try
         {
@@ -341,15 +353,15 @@ internal static class FollowMode
                 return;
             if (Service.TargetManager.Target?.GameObjectId != targetId)
             {
-                Service.PluginLog.Information("Not following {Target}: the target changed before /follow.", name);
+                Service.PluginLog.Information("Not following {Target}: the target changed before /follow.", who.Name);
                 return;
             }
             if (TrySend("/follow <t>", "follow"))
-                Following = name;
+                SetFollowing(who);
         }
         catch (Exception ex)
         {
-            Service.PluginLog.Warning(ex, "Couldn't follow {Target}.", name);
+            Service.PluginLog.Warning(ex, "Couldn't follow {Target}.", who.Name);
         }
     }
 
@@ -387,7 +399,7 @@ internal static class FollowMode
         FollowNavigator.Cancel();
         MimicMode.Stop();
         followGeneration++;
-        Following = null;
+        SetFollowing(null);
         followingForMimic = false;
 
         // Stop isn't held back by the shared rate limit (it's how you get your character back), but a flood of stops

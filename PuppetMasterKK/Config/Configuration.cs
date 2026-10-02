@@ -217,6 +217,8 @@ namespace PuppetMasterKK
         public bool FollowLeader { get; set; } = true;
         // Jump when the player being mimicked jumps.
         public bool CopyJumps { get; set; } = true;
+        // While following them: walk when they walk, run when they run.
+        public bool MatchPace { get; set; } = true;
 
         public const float MaxDelaySeconds = 10f;
         public const float MaxRepeatGuardSeconds = 30f;
@@ -243,6 +245,8 @@ namespace PuppetMasterKK
         public string ComeWords { get; set; } = "come";
         // When the player is in the zone but too far to follow, walk to them with vnavmesh first (when it's loaded).
         public bool WalkWithVnavmesh { get; set; } = true;
+        // Walk when they walk and run when they run (your walk toggle comes back afterwards).
+        public bool MatchPace { get; set; } = true;
         // Before v5, mimic lived here. Read once to move it to MimicSettings, never written again.
         public string? MimicWords { get; set; }
         public bool? MimicMotionOnly { get; set; }

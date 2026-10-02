@@ -76,7 +76,16 @@ internal sealed partial class MainWindow
                     StopWalking();
                 Changed();
             }
-            ImGui.SameLine();
+            Gap();
+            var matchPace = settings.MatchPace;
+            if (W.Toggle("Walk when they walk##followPace", ref matchPace))
+            {
+                settings.MatchPace = matchPace;
+                Changed();
+            }
+            Hint("While following, walk when they walk and run when they run. More than 10 yalms behind, you always run " +
+                 "to catch up. Your walk toggle goes back to how it was when you stop following.");
+            Gap();
             var vnavmesh = FollowNavigator.IsLoaded();
             W.Chip(vnavmesh ? "vnavmesh detected" : "vnavmesh not detected", vnavmesh ? Theme.Accent : Theme.Faint);
             Hint("When the player is in your zone but more than 20 yalms away, walk to them first, then target and follow them. " +
