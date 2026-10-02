@@ -77,6 +77,13 @@ internal sealed partial class MainWindow
                  "is on, and follows them again after each copied emote (an emote stops following). Works even with " +
                  "Follow mode off. The stop word ends both.");
             Gap();
+            var copyJumps = settings.CopyJumps;
+            if (W.Toggle("Jump when they jump##mimicJumps", ref copyJumps))
+            {
+                settings.CopyJumps = copyJumps;
+                Changed();
+            }
+            Gap();
             var motionOnly = settings.MotionOnly;
             if (HideEmoteTextToggle("mimicMotionOnly", ref motionOnly))
             {

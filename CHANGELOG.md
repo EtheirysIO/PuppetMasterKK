@@ -11,7 +11,7 @@ PuppetMasterKK: Puppet Master, rebuilt.
 - **Protections:** emotes run, everything else has to be allowed. Separate switches for chat commands, risky game commands and other plugins' commands. `/logout`, `/shutdown`, `/follow`, `/xl` and look-alike spellings never run.
 - **Who can trigger it:** Anyone, friends, your Free Company, your party, or named players, plus per-person cooldowns and one waiting request per person.
 - **Follow mode:** "Ami follow me", "Ami come" (walks over with vnavmesh), "Ami stop".
-- **Mimic:** "Ami mimic me" copies their emotes, aimed at the same target, and follows them around between emotes.
+- **Mimic:** "Ami mimic me" copies their emotes (aimed at the same target) and jumps, and follows them around between emotes.
 - **Emote replies:** Right Back At You is built in, with "reply with a different emote".
 - **Activity:** counts, Practice mode (nothing is sent) and Test all triggers.
 - **Share codes:** copy a trigger as a code; importing shows everything risky and strips it unless you tick it.

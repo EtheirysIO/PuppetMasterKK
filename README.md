@@ -61,7 +61,7 @@ PuppetMasterKK watches the chat channels you pick. When someone you trust says t
 
 ### Mimic
 
-- `Ami mimic me` and you copy their emotes until `Ami stop`, following them around between emotes (walking over with vnavmesh if they're far).
+- `Ami mimic me` and you copy their emotes and jumps until `Ami stop`, following them around between emotes (walking over with vnavmesh if they're far).
 - If they emote at someone, you emote at the same person. If they emote at you, you emote back at them.
 - Its own call name, channels, who can ask, and Only and Never lists for who you'll mimic.
 - An optional delay before copying, and a repeat guard so two players mimicking each other never loop.
