@@ -54,6 +54,9 @@ internal sealed class EmoteReplies : IDisposable
     {
         try
         {
+#if SMOKE_TEST
+            SmokeRecord(instigatorAddress, emoteId, targetId);
+#endif
             var replying = Service.configuration?.EmoteReplies.Enabled == true;
             var mimicking = MimicMode.IsActive;
             if (!disposed && (replying || mimicking) && instigatorAddress != 0)
@@ -173,4 +176,47 @@ internal sealed class EmoteReplies : IDisposable
             .GetRowOrDefault(emoteId)?.TextCommand.ValueNullable?.Command.ExtractText();
         return string.IsNullOrWhiteSpace(command) || !command.StartsWith('/') ? null : command;
     }
+
+#if SMOKE_TEST
+    // Smoke-test probe: every call into the detour (before its gates), so a test can see the hook fire for its own
+    // emotes, which never reach Handle. Keeps the last few calls; the detour may run off the framework thread.
+    internal readonly record struct SmokeEmoteCall(long Seq, ulong Instigator, ushort EmoteId, ulong TargetId);
+
+    private readonly object smokeLock = new();
+    private readonly System.Collections.Generic.Queue<SmokeEmoteCall> smokeCalls = new();
+    private long smokeCount;
+
+    internal bool SmokeHookEnabled => hook is { IsDisposed: false, IsEnabled: true };
+    internal nint SmokeHookAddress => hook?.Address ?? 0;
+    internal string SmokeSignature => EmoteSignature;
+
+    internal long SmokeCallCount
+    {
+        get
+        {
+            lock (smokeLock)
+                return smokeCount;
+        }
+    }
+
+    internal SmokeEmoteCall[] SmokeRecentCalls()
+    {
+        lock (smokeLock)
+            return smokeCalls.ToArray();
+    }
+
+    // The plugin's own emote id -> command lookup (client language), or null.
+    internal static string? SmokeEmoteCommand(ushort emoteId) => EmoteCommand(emoteId);
+
+    private void SmokeRecord(ulong instigatorAddress, ushort emoteId, ulong targetId)
+    {
+        lock (smokeLock)
+        {
+            smokeCount++;
+            smokeCalls.Enqueue(new SmokeEmoteCall(smokeCount, instigatorAddress, emoteId, targetId));
+            while (smokeCalls.Count > 32)
+                smokeCalls.Dequeue();
+        }
+    }
+#endif
 }

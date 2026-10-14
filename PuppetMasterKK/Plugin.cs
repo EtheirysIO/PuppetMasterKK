@@ -17,6 +17,9 @@ namespace PuppetMasterKK
         public WindowSystem windowSystem = new("PuppetMasterKK");
         internal MainWindow? mainWindow;
         internal EmoteReplies? emoteReplies;
+#if SMOKE_TEST
+        internal phys1ksTest.SmokeSuite? smoke;
+#endif
 
         private bool commandRegistered;
         private bool shortCommandRegistered;
@@ -86,6 +89,13 @@ namespace PuppetMasterKK
                 Service.PluginInterface.UiBuilder.OpenConfigUi += OpenSettings;
                 Service.PluginInterface.UiBuilder.OpenMainUi += OpenMain;
                 uiSubscribed = true;
+#if SMOKE_TEST
+                smoke = phys1ksTest.Smoke.Start(pluginInterface,
+                    new phys1ksTest.SmokeOptions("PuppetMasterKK", "/pmkktest",
+                        () => Service.configuration?.Accent ?? phys1ksUI.AccentColor.Orange,
+                        () => Service.configuration?.Colorblind ?? false),
+                    Smoke.PuppetMasterSmoke.Register);
+#endif
             }
             catch
             {
@@ -101,6 +111,13 @@ namespace PuppetMasterKK
         // Undoes the constructor in reverse order.
         public void Dispose()
         {
+#if SMOKE_TEST
+            if (smoke != null)
+            {
+                Safe(smoke.Dispose);
+                smoke = null;
+            }
+#endif
             if (uiSubscribed)
             {
                 Safe(() => Service.PluginInterface.UiBuilder.OpenMainUi -= OpenMain);

@@ -24,6 +24,12 @@
 
   <!-- phys1ksUI: the shared UI kit, compiled in as source (N:\FFXIV\phys1ksUI). -->
   <Import Project="..\..\phys1ksUI\phys1ksUI.props" />
+  <!-- phys1ksTest: in-game smoke tests, compiled in only by the SmokeTest configuration (N:\FFXIV\phys1ksTest). -->
+  <Import Project="..\..\phys1ksTest\phys1ksTest.props" Condition="Exists('..\..\phys1ksTest\phys1ksTest.props')" />
+  <!-- Without the kit (a clone or CI that only has phys1ksUI), the plugin's tests stay out of the build too. -->
+  <ItemGroup Condition="!Exists('..\..\phys1ksTest\phys1ksTest.props')">
+    <Compile Remove="Smoke\**\*.cs" />
+  </ItemGroup>
 
   <!-- The plugin installer's icon: images\icon.png next to the dll (and in the release zip). -->
   <ItemGroup>

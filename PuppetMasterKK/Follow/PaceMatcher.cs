@@ -56,6 +56,11 @@ internal static unsafe class PaceMatcher
         }
     }
 
+#if SMOKE_TEST
+    // Smoke-test accessor: pace matching is watching (and may set the walk toggle any frame).
+    internal static bool SmokeWatching => watching;
+#endif
+
     private static void Tick(IFramework framework)
     {
         try

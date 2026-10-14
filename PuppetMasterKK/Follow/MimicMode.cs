@@ -230,6 +230,18 @@ internal static unsafe class MimicMode
         }, TimeSpan.FromSeconds(delay));
     }
 
+#if SMOKE_TEST
+    // Smoke-test accessor: JumpNow's game call (the same action), without its mimic gates.
+    internal static bool SmokeUseJumpAction()
+    {
+        var actions = ActionManager.Instance();
+        return actions != null && actions->UseAction(ActionType.GeneralAction, JumpGeneralAction);
+    }
+
+    internal static bool SmokeIsJumping(nint characterAddress)
+        => characterAddress != 0 && ((GameCharacter*)characterAddress)->IsJumping();
+#endif
+
     private static void JumpNow(ulong leaderId)
     {
         try

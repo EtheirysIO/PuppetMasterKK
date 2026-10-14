@@ -35,6 +35,22 @@ internal static unsafe class GameChat
         }
     }
 
+#if SMOKE_TEST
+    // Smoke-test accessor: Send's checks without sending. Null when Send would take the line, else why not. Keep it in
+    // step with Send.
+    internal static string? SmokeValidate(string message)
+    {
+        var bytes = Encoding.UTF8.GetBytes(message);
+        if (bytes.Length == 0)
+            return "The message is empty.";
+        if (bytes.Length > MaxBytes)
+            return $"The message is longer than {MaxBytes} bytes.";
+        if (message.Length != Sanitize(message).Length)
+            return "The message has characters the chat box doesn't allow.";
+        return null;
+    }
+#endif
+
     private static string Sanitize(string message)
     {
         var text = Utf8String.FromString(message);
